@@ -1,5 +1,6 @@
 plugins {
     `java-gradle-plugin`
+    kotlin("jvm") version "2.3.21"
 }
 
 java {
