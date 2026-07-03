@@ -1,5 +1,6 @@
 package gg.ginco.hytest.runtime;
 
+import com.hypixel.hytale.event.EventRegistry;
 import com.hypixel.hytale.server.core.event.events.BootEvent;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
@@ -16,12 +17,17 @@ import gg.ginco.hytest.runtime.runner.TestRunner;
  */
 public final class HytestPlugin extends JavaPlugin {
 
+    /** The runtime's event registry; used by helpers (e.g. SimulatedPlayer) to
+     *  register transient listeners during a test run. Set on setup(). */
+    public static volatile EventRegistry EVENTS;
+
     public HytestPlugin(JavaPluginInit init) {
         super(init);
     }
 
     @Override
     protected void setup() {
+        EVENTS = getEventRegistry();
         getEventRegistry().register(BootEvent.class, event -> {
             if (Boolean.getBoolean("hytest.run")) {
                 TestRunner.runAsync();

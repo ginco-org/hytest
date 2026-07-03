@@ -70,6 +70,10 @@ public final class TestRunner {
 
         return TestWorldFactory.createVoid().thenCompose(world -> {
             HytaleTestHelper helper = new HytaleTestHelper(world);
+            // Run the test body off the world thread so a test may block (e.g. waiting for
+            // a simulated player to join) without deadlocking the world, which must keep
+            // ticking to complete those joins. Use HytaleTestHelper#runOnWorld for logic
+            // that must execute on the world thread.
             CompletableFuture<Void> body = CompletableFuture.runAsync(() -> {
                 try {
                     descriptor.method().setAccessible(true);
@@ -79,7 +83,7 @@ public final class TestRunner {
                             ? ite.getCause() : t;
                     helper.fail(cause);
                 }
-            }, world);
+            });
 
             return body
                     .thenCompose(x -> helper.doneFuture())

@@ -150,7 +150,8 @@ public final class ServerProcess {
             Files.createDirectories(workDir);
             Path modsDir = workDir.resolve("mods");
             Files.createDirectories(modsDir);
-            Files.copy(config.pluginJar(), modsDir.resolve("Hytest.jar"));
+            Files.copy(config.pluginJar(), modsDir.resolve("Hytest.jar"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
             List<String> command = new ArrayList<>();
             command.add(config.java());
@@ -242,9 +243,17 @@ public final class ServerProcess {
             String assetsRaw = System.getProperty("hytest.assets");
             Path assets = (assetsRaw == null || assetsRaw.isBlank()) ? null : Path.of(assetsRaw);
             String workDirRaw = System.getProperty("hytest.serverDir");
-            Path workDir = (workDirRaw == null || workDirRaw.isBlank())
-                    ? tempDir()
-                    : Path.of(workDirRaw);
+            // Always use a fresh temp working dir so runs never collide on stale
+            // state or a pre-existing mods/Hytest.jar. serverDir is only a hint parent.
+            Path workDir;
+            try {
+                Path parent = (workDirRaw == null || workDirRaw.isBlank())
+                        ? Path.of(System.getProperty("java.io.tmpdir"))
+                        : Path.of(workDirRaw);
+                workDir = Files.createTempDirectory(parent, "hytest-run-");
+            } catch (IOException e) {
+                throw new IllegalStateException("Could not create temp server dir", e);
+            }
             String java = System.getProperty("hytest.java",
                     Path.of(System.getProperty("java.home"), "bin", "java").toString());
             List<String> jvmArgs = splitArgs(System.getProperty("hytest.jvmArgs", "-Xmx4G -Xms1G"));

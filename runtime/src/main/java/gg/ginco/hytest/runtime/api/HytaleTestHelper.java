@@ -2,7 +2,9 @@ package gg.ginco.hytest.runtime.api;
 
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.universe.world.World;
+import gg.ginco.hytest.runtime.player.SimulatedPlayer;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +35,48 @@ public final class HytaleTestHelper {
 
     public long tick() {
         return world.getTick();
+    }
+
+    // ---- simulated players ----------------------------------------------------
+
+    /** Spawns a simulated player named {@code "SimulatedPlayer"} into the test world. */
+    public SimulatedPlayer spawnSimulatedPlayer() {
+        return spawnSimulatedPlayer("SimulatedPlayer");
+    }
+
+    /** Spawns a simulated player with the given display name into the test world. */
+    public SimulatedPlayer spawnSimulatedPlayer(String name) {
+        try {
+            return SimulatedPlayer.spawn(world, name).orTimeout(30, TimeUnit.SECONDS).join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            throw cause instanceof RuntimeException re ? re : e;
+        }
+    }
+
+    /** Asserts the test world currently holds exactly {@code expected} players. */
+    public void assertPlayerCount(int expected) {
+        int actual = world.getPlayers().size();
+        if (actual != expected) {
+            throw new AssertionError("expected " + expected + " player(s) in world, got " + actual);
+        }
+    }
+
+    /**
+     * Runs {@code action} on the world thread and blocks until it completes. Use this for
+     * mutations that must happen on the world's own thread; reads are generally safe from
+     * the test thread.
+     */
+    public void runOnWorld(Runnable action) {
+        try {
+            CompletableFuture.runAsync(action, world).join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            throw e;
+        }
     }
 
     // ---- terminal transitions -------------------------------------------------
