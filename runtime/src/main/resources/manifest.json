@@ -1,0 +1,8 @@
+{
+  "Group": "Ginco",
+  "Name": "Hytest",
+  "Version": "0.1.0",
+  "Website": "https://github.com/ginco-org/hytest",
+  "Main": "gg.ginco.hytest.runtime.HytestPlugin",
+  "ServerVersion": "*"
+}
