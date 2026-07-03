@@ -72,7 +72,10 @@ public final class SimulatedPlayer {
             }
         }, 0L, 20L, TimeUnit.MILLISECONDS);
 
-        return join.thenApply(playerRef -> new SimulatedPlayer(playerRef, uuid, name))
+        return join.thenCompose(playerRef -> playerRef == null
+                        ? CompletableFuture.failedFuture(new IllegalStateException(
+                                "simulated player rejected by Universe.addPlayer (uuid=" + uuid + ", name=" + name + ")"))
+                        : CompletableFuture.completedFuture(new SimulatedPlayer(playerRef, uuid, name)))
                 .whenComplete((player, error) -> {
                     readyCompleter.cancel(false);
                     routing.unregister();

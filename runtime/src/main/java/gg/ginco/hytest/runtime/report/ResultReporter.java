@@ -53,6 +53,14 @@ public final class ResultReporter {
         emit(frame);
     }
 
+    /** Emits a non-fatal diagnostic (discovery issues, config hints). */
+    public static void warning(String message) {
+        Map<String, Object> frame = new LinkedHashMap<>();
+        frame.put("type", "warning");
+        frame.put("message", message);
+        emit(frame);
+    }
+
     private static void emit(Map<String, Object> frame) {
         HytaleLoggerBackend.REAL_SOUT.println(PREFIX + Json.stringify(frame));
     }

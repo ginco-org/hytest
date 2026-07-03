@@ -14,7 +14,6 @@ import org.junit.platform.engine.ExecutionRequest;
 import org.junit.platform.engine.TestDescriptor;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.TestEngine;
-import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.UniqueId;
 
 /**
@@ -86,7 +85,11 @@ public final class HytestEngine implements TestEngine {
 
         listener.executionStarted(root);
         boolean showServerLogs = Boolean.getBoolean("hytest.showServerLogs");
-        ServerProcess.run(methodRefs, listener, showServerLogs);
-        listener.executionFinished(root, TestExecutionResult.successful());
+        try {
+            ServerProcess.run(methodRefs, listener, showServerLogs);
+            listener.executionFinished(root, TestExecutionResult.successful());
+        } catch (RuntimeException e) {
+            listener.executionFinished(root, TestExecutionResult.failed(e));
+        }
     }
 }

@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -20,12 +21,17 @@ import org.junit.platform.engine.TestExecutionResult;
 /**
  * Launches the Hytale server as a subprocess with the merged Hytest plugin in
  * {@code mods/}, then relays the {@code HYTEST} result frames on stdout to the
- * JUnit execution listener. Runs entirely on the calling (engine) thread except
- * for two daemon reader threads that feed frames and drain stderr.
+ * JUnit execution listener.
+ *
+ * <p>A ring buffer captures the last {@value #OUTPUT_RING_LINES} non-frame
+ * lines from the server (both stdout and stderr). If the server exits without
+ * sending {@code run_finished}, those lines are dumped to the build console so
+ * boot failures are visible even when {@code showServerLogs} is off.
  */
 public final class ServerProcess {
 
-    private static final Frame EOF = new Frame("eof", null, null, null, 0L, null);
+    private static final Frame EOF = new Frame("eof", null, null, null, 0L, null, null);
+    private static final int OUTPUT_RING_LINES = 300;
 
     private ServerProcess() {
     }
@@ -38,18 +44,21 @@ public final class ServerProcess {
         Config config = Config.fromSystemProperties();
         Process process = startServer(config);
         var queue = new LinkedBlockingQueue<Frame>();
+        List<String> serverOutput = new ArrayList<>();
 
-        Thread stdout = new Thread(() -> readFrames(process.getInputStream(), queue, showServerLogs), "hytest-stdout");
+        Thread stdout = new Thread(() -> readFrames(process.getInputStream(), queue, serverOutput, showServerLogs),
+                "hytest-stdout");
         stdout.setDaemon(true);
         stdout.start();
 
-        Thread stderr = new Thread(() -> drain(process.getErrorStream(), showServerLogs), "hytest-stderr");
+        Thread stderr = new Thread(() -> drain(process.getErrorStream(), serverOutput, showServerLogs),
+                "hytest-stderr");
         stderr.setDaemon(true);
         stderr.start();
 
         long deadline = System.currentTimeMillis() + config.timeoutMillis();
         try {
-            dispatch(methods, listener, queue, deadline);
+            dispatch(methods, listener, queue, serverOutput, deadline);
         } finally {
             ensureTerminated(process, deadline);
         }
@@ -59,8 +68,10 @@ public final class ServerProcess {
             Map<String, MethodDescriptorRef> methods,
             EngineExecutionListener listener,
             LinkedBlockingQueue<Frame> queue,
+            List<String> serverOutput,
             long deadline) {
 
+        Set<String> startedKeys = new LinkedHashSet<>();
         Set<String> finishedKeys = new LinkedHashSet<>();
         Set<ClassDescriptorRef> startedClasses = new LinkedHashSet<>();
         boolean runFinished = false;
@@ -77,13 +88,17 @@ public final class ServerProcess {
                 Thread.currentThread().interrupt();
                 break;
             }
-            if (frame == null || frame == EOF) {
+            if (frame == null) {
                 continue;
             }
+            if (frame == EOF) {
+                break; // server exited — run cleanup immediately
+            }
             switch (frame.type()) {
-                case "test_started" -> startTest(frame, methods, listener, startedClasses);
+                case "test_started" -> startTest(frame, methods, listener, startedKeys, startedClasses);
                 case "test_finished" -> finishTest(frame, methods, listener, finishedKeys, startedClasses);
                 case "run_finished" -> runFinished = true;
+                case "warning" -> System.err.println("[hytest] " + frame.message());
                 default -> { /* ignore */ }
             }
             if (runFinished) {
@@ -91,35 +106,63 @@ public final class ServerProcess {
             }
         }
 
-        // Anything the server never reported: abort.
-        for (MethodDescriptorRef ref : methods.values()) {
-            if (finishedKeys.add(ref.descriptor().key())) {
-                listener.executionFinished(ref.descriptor(),
-                        TestExecutionResult.aborted(new AssertionError(
-                                "server exited without reporting a result for "
-                                        + ref.descriptor().className() + "." + ref.descriptor().methodName())));
+        if (!runFinished) {
+            synchronized (serverOutput) {
+                if (!serverOutput.isEmpty()) {
+                    System.err.println("=== Hytale server output (tail) ===");
+                    for (String line : serverOutput) {
+                        System.err.println(line);
+                    }
+                    System.err.println("=== end of server output ===");
+                }
             }
+        }
+
+        // Anything the server never reported: emit started then aborted so the
+        // JUnit start/finish contract holds.
+        for (MethodDescriptorRef ref : methods.values()) {
+            if (finishedKeys.contains(ref.descriptor().key())) {
+                continue;
+            }
+            startTestMethod(ref, listener, startedKeys, startedClasses);
+            listener.executionFinished(ref.descriptor(),
+                    TestExecutionResult.aborted(new AssertionError(
+                            "server exited without reporting a result for "
+                                    + ref.descriptor().className() + "." + ref.descriptor().methodName())));
         }
         for (ClassDescriptorRef classRef : startedClasses) {
             listener.executionFinished(classRef.descriptor(), TestExecutionResult.successful());
         }
     }
 
-    private static void startTest(
-            Frame frame,
-            Map<String, MethodDescriptorRef> methods,
+    private static void startTestMethod(
+            MethodDescriptorRef ref,
             EngineExecutionListener listener,
+            Set<String> startedKeys,
             Set<ClassDescriptorRef> startedClasses) {
 
-        MethodDescriptorRef ref = methods.get(frame.testKey());
-        if (ref == null) {
-            return; // server reported a test the engine didn't discover — ignore
+        if (!startedKeys.add(ref.descriptor().key())) {
+            return; // already started
         }
         if (ref.classRef().beginIfFirst()) {
             listener.executionStarted(ref.classRef().descriptor());
             startedClasses.add(ref.classRef());
         }
         listener.executionStarted(ref.descriptor());
+    }
+
+    private static void startTest(
+            Frame frame,
+            Map<String, MethodDescriptorRef> methods,
+            EngineExecutionListener listener,
+            Set<String> startedKeys,
+            Set<ClassDescriptorRef> startedClasses) {
+
+        MethodDescriptorRef ref = methods.get(frame.testKey());
+        if (ref == null) {
+            return;
+        }
+        startTestMethod(ref, listener, startedKeys, startedClasses);
     }
 
     private static void finishTest(
@@ -175,7 +218,8 @@ public final class ServerProcess {
         }
     }
 
-    private static void readFrames(InputStream stream, LinkedBlockingQueue<Frame> queue, boolean showServerLogs) {
+    private static void readFrames(InputStream stream, LinkedBlockingQueue<Frame> queue,
+                                   List<String> serverOutput, boolean showServerLogs) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -186,8 +230,11 @@ public final class ServerProcess {
                         Thread.currentThread().interrupt();
                         return;
                     }
-                } else if (showServerLogs) {
-                    System.out.println("[server] " + line);
+                } else {
+                    appendLine(serverOutput, line);
+                    if (showServerLogs) {
+                        System.out.println("[server] " + line);
+                    }
                 }
             }
         } catch (IOException ignored) {
@@ -201,16 +248,26 @@ public final class ServerProcess {
         }
     }
 
-    private static void drain(InputStream stream, boolean showServerLogs) {
+    private static void drain(InputStream stream, List<String> serverOutput, boolean showServerLogs) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream))) {
             String line;
             while ((line = reader.readLine()) != null) {
+                appendLine(serverOutput, line);
                 if (showServerLogs) {
                     System.err.println("[server:err] " + line);
                 }
             }
         } catch (IOException ignored) {
             // process closed stream
+        }
+    }
+
+    private static void appendLine(List<String> output, String line) {
+        synchronized (output) {
+            while (output.size() >= OUTPUT_RING_LINES) {
+                output.removeFirst();
+            }
+            output.add(line);
         }
     }
 
@@ -243,8 +300,6 @@ public final class ServerProcess {
             String assetsRaw = System.getProperty("hytest.assets");
             Path assets = (assetsRaw == null || assetsRaw.isBlank()) ? null : Path.of(assetsRaw);
             String workDirRaw = System.getProperty("hytest.serverDir");
-            // Always use a fresh temp working dir so runs never collide on stale
-            // state or a pre-existing mods/Hytest.jar. serverDir is only a hint parent.
             Path workDir;
             try {
                 Path parent = (workDirRaw == null || workDirRaw.isBlank())
@@ -270,14 +325,6 @@ public final class ServerProcess {
                         "Missing required system property " + key + " — the hytest Gradle plugin must set it.");
             }
             return Path.of(value);
-        }
-
-        private static Path tempDir() {
-            try {
-                return Files.createTempDirectory("hytest-server");
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not create temp server dir", e);
-            }
         }
 
         private static List<String> splitArgs(String args) {

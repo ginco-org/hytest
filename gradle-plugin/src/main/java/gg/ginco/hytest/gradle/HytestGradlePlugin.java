@@ -62,7 +62,7 @@ public final class HytestGradlePlugin implements Plugin<Project> {
         project.getDependencies().add(hytaleTest.getRuntimeOnlyConfigurationName(),
                 "org.junit.platform:junit-platform-launcher:" + junitPlatform);
 
-        TaskProvider<Jar> mergedJar = registerMergedJarTask(project, runtimePlugin, hytaleTest);
+        TaskProvider<Jar> mergedJar = registerMergedJarTask(project, runtimePlugin, hytaleTest, main);
         registerTestTask(project, ext, sourceSets, mergedJar);
     }
 
@@ -87,7 +87,7 @@ public final class HytestGradlePlugin implements Plugin<Project> {
     }
 
     private TaskProvider<Jar> registerMergedJarTask(
-            Project project, Configuration runtimePlugin, SourceSet hytaleTest) {
+            Project project, Configuration runtimePlugin, SourceSet hytaleTest, SourceSet main) {
         return project.getTasks().register("createHytaleTestPlugin", Jar.class, task -> {
             task.setDescription("Builds the merged Hytest plugin jar (runtime + hytaleTest classes) for server deployment.");
             task.getArchiveBaseName().set("Hytest");
@@ -103,6 +103,7 @@ public final class HytestGradlePlugin implements Plugin<Project> {
                 return trees;
             }));
             task.from(hytaleTest.getOutput());
+            task.from(main.getOutput().getClassesDirs());
         });
     }
 
