@@ -13,7 +13,6 @@ hytale {
 }
 
 hytest {
-    // Reuse the server files already provisioned by hyctl / the Phase 1 run dir.
     serverJar = file("../run/HytaleServer.jar").absolutePath
     assets = file("../run/Assets.zip").absolutePath
 }
