@@ -7,7 +7,7 @@ public class ExampleTest {
 
     @HytaleTest
     void worldIsAlive(HytaleTestHelper t) {
-        t.assertTrue(t.world().isAlive(), "freshly created world should be alive");
+        t.assertTrue(t.getWorld().isAlive(), "freshly created world should be alive");
         t.succeed();
     }
 
