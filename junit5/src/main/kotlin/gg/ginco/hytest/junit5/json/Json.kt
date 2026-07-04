@@ -90,10 +90,11 @@ class JsonParser(private val src: String) {
         throw error("unterminated string")
     }
 
-    private fun parseNumber(): Double {
+    private fun parseNumber(): Number {
         val start = pos
         while (pos < src.length && (src[pos].isDigit() || src[pos] in "-+.eE")) pos++
-        return src.substring(start, pos).toDouble()
+        val token = src.substring(start, pos)
+        return if (token.any { it in ".eE" }) token.toDouble() else token.toLong()
     }
 
     private fun parseBoolean(): Boolean = when {

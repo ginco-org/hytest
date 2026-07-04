@@ -6,5 +6,7 @@ data class TestDescriptor(
     val testClass: Class<*>,
     val method: Method,
     val displayName: String,
-    val timeoutSeconds: Long
+    val timeoutSeconds: Long,
+    val beforeEach: List<Method> = emptyList(),
+    val afterEach: List<Method> = emptyList()
 )

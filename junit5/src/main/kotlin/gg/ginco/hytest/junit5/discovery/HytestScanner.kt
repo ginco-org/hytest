@@ -97,7 +97,10 @@ object HytestScanner {
                             descriptor: String, visible: Boolean
                         ): AnnotationVisitor? {
                             if (visible && ANNOTATION_DESCRIPTOR == descriptor) {
-                                out.add(DiscoveredTest(className.replace('/', '.'), name))
+                                return AnnotationCollector { displayName, timeout ->
+                                    val cn = className.replace('/', '.')
+                                    out.add(DiscoveredTest(cn, name, displayName, timeout))
+                                }
                             }
                             return null
                         }
@@ -105,5 +108,23 @@ object HytestScanner {
                 }
             }, PARSING_FLAGS)
         } catch (_: RuntimeException) { /* malformed class file — skip */ }
+    }
+
+    private class AnnotationCollector(
+        private val onDone: (displayName: String, timeoutSeconds: Long) -> Unit
+    ) : AnnotationVisitor(Opcodes.ASM9) {
+        private var displayName = ""
+        private var timeoutSeconds = 30L
+
+        override fun visit(name: String?, value: Any?) {
+            when (name) {
+                "value" -> displayName = value?.toString() ?: ""
+                "timeoutSeconds" -> timeoutSeconds = (value as? Number)?.toLong() ?: 30L
+            }
+        }
+
+        override fun visitEnd() {
+            onDone(displayName, timeoutSeconds)
+        }
     }
 }

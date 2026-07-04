@@ -26,7 +26,7 @@ class HytestEngine : TestEngine {
                 ClassDescriptor(uniqueId, found.className).also { root.addChild(it) }
             }
             classDescriptor.addChild(
-                MethodDescriptor(classDescriptor.uniqueId, found.className, found.methodName))
+                MethodDescriptor(classDescriptor.uniqueId, found.className, found.methodName, found.effectiveDisplayName))
         }
         return root
     }

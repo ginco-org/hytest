@@ -4,10 +4,15 @@ import org.junit.platform.engine.UniqueId
 import org.junit.platform.engine.support.descriptor.AbstractTestDescriptor
 import org.junit.platform.engine.support.descriptor.MethodSource
 
-class MethodDescriptor(parent: UniqueId, val className: String, val methodName: String) :
+class MethodDescriptor(
+    parent: UniqueId,
+    val className: String,
+    val methodName: String,
+    displayName: String = ""
+) :
     AbstractTestDescriptor(
         parent.append("method", methodName),
-        "$className.$methodName",
+        displayName.ifEmpty { "$className.$methodName" },
         MethodSource.from(className, methodName)
     ) {
 
