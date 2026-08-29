@@ -43,13 +43,17 @@ object ClasspathTestScanner {
 
     private fun scanClass(loader: ClassLoader, className: String, out: MutableList<TestDescriptor>) {
         val type = try { loader.loadClass(className) } catch (_: Throwable) { return }
+        // getDeclaredMethods resolves every type in every method signature. Classes on the
+        // server classpath may reference types this server version no longer ships (e.g.
+        // protobuf-nano classes removed in 0.6.2) — skip those instead of killing discovery.
+        val declared = try { type.declaredMethods.toList() } catch (_: Throwable) { return }
         val beforeEach = mutableListOf<Method>()
         val afterEach = mutableListOf<Method>()
-        for (m in type.declaredMethods) {
+        for (m in declared) {
             if (m.isAnnotationPresent(BeforeEach::class.java)) beforeEach.add(m)
             if (m.isAnnotationPresent(AfterEach::class.java)) afterEach.add(m)
         }
-        for (m in type.declaredMethods) {
+        for (m in declared) {
             val a = m.getAnnotation(HytaleTest::class.java) ?: continue
             val display = a.value.ifEmpty { "${type.simpleName}.${m.name}" }
             out.add(TestDescriptor(type, m, display, a.timeoutSeconds, beforeEach, afterEach))

@@ -42,6 +42,7 @@ class FakeChannelConnection : ChannelConnection {
     override fun updateTimeoutContext(stage: String, identifier: String) {}
     override fun updateTimeoutContext(stage: String) {}
     override fun setPacketTimeout(timeout: Duration) {}
+    override fun clearPacketTimeout() {}
     override fun setStageTimeout(stage: String, timeout: Duration, condition: BooleanSupplier, onTimeout: Runnable) {}
     override fun clearStageTimeout() {}
     override fun logConnectionTimings(message: String, level: Level) {}
@@ -60,6 +61,6 @@ class FakeChannelConnection : ChannelConnection {
     override fun closeConnection() {}
     override fun closeApplicationConnection() {}
     override fun closeApplicationConnection(errorCode: QuicApplicationErrorCode) {}
-    override fun closeApplicationConnection(errorCode: QuicApplicationErrorCode, reason: String) {}
+    override fun closeApplicationConnection(errorCode: QuicApplicationErrorCode, reason: FormattedMessage) {}
     override fun updateStreamPriority(urgency: Int, incremental: Boolean) {}
 }

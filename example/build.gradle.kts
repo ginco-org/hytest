@@ -1,5 +1,5 @@
 plugins {
-    id("gg.ginco.hygradle") version "0.2.0"
+    id("gg.ginco.hygradle") version "0.4.0"
     id("gg.ginco.hytest")
 }
 
@@ -9,7 +9,10 @@ hytale {
     group = "Example"
     name = "HytestExample"
     mainClass = "com.example.ExamplePlugin"
-    serverVersion = "0.5.6"
+    serverVersion = "0.6.2"
+    server {
+        serverDir = file("../run")
+    }
 }
 
 hytest {

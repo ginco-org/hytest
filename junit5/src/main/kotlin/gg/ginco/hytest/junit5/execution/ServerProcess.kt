@@ -156,6 +156,11 @@ object ServerProcess {
             add("-Dhytest.run=true")
             add("-jar"); add(config.serverJar.toString())
             if (config.assets != null) { add("--assets"); add(config.assets.toString()) }
+            val session = GameSession.resolve()
+            if (session != null) {
+                add("--session-token"); add(session.sessionToken)
+                add("--identity-token"); add(session.identityToken)
+            }
             add("--disable-sentry")
             add("--disable-file-watcher")
         }

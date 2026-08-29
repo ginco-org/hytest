@@ -3,11 +3,14 @@ package gg.ginco.hytest.runtime.player
 import com.hypixel.hytale.event.EventRegistration
 import com.hypixel.hytale.math.vector.Transform
 import com.hypixel.hytale.server.core.HytaleServer
+import com.hypixel.hytale.server.core.Message
 import com.hypixel.hytale.server.core.auth.PlayerAuthentication
 import com.hypixel.hytale.server.core.command.system.CommandManager
+import com.hypixel.hytale.server.core.event.events.player.PlayerChatEvent
 import com.hypixel.hytale.server.core.event.events.player.PlayerConnectEvent
 import com.hypixel.hytale.server.core.io.PacketHandler
 import com.hypixel.hytale.server.core.io.ProtocolVersion
+import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent
 import com.hypixel.hytale.server.core.universe.PlayerRef
 import com.hypixel.hytale.server.core.universe.Universe
 import com.hypixel.hytale.server.core.universe.world.World
@@ -16,12 +19,57 @@ import java.util.UUID
 import java.util.concurrent.*
 
 class SimulatedPlayer private constructor(
+    val world: World,
     private val playerRef: PlayerRef,
     val uuid: UUID,
     val name: String
 ) {
     fun ref(): PlayerRef = playerRef
+
     fun transform(): Transform = playerRef.transform
+
+    /**
+     * True while the player is still registered in the universe.
+     *
+     * Note: [PlayerRef.isValid][com.hypixel.hytale.server.core.universe.PlayerRef.isValid]
+     * is not usable for this since 0.6.x — `removeFromStore` keeps the removed
+     * `Holder` set, so it never flips to false after a disconnect.
+     */
+    fun isValid(): Boolean = Universe.get().players.contains(playerRef)
+
+    fun teleport(x: Double, y: Double, z: Double): CompletableFuture<Void> {
+        val ref = playerRef.reference
+            ?: return CompletableFuture.failedFuture(IllegalStateException("player is not in a world"))
+        return CompletableFuture.runAsync({
+            val tc = ref.store.getComponent(ref, TransformComponent.getComponentType())
+            tc?.teleportPosition(Transform(x, y, z).position)
+        }, world)
+    }
+
+    fun teleport(transform: Transform): CompletableFuture<Void> {
+        val pos = transform.position
+        return teleport(pos.x, pos.y, pos.z)
+    }
+
+    fun chat(message: String): CompletableFuture<Void> {
+        val targets = ArrayList(Universe.get().players)
+        val event = PlayerChatEvent(playerRef, targets, message)
+        val dispatcher = HytaleServer.get().eventBus.dispatchForAsync(PlayerChatEvent::class.java)
+        return dispatcher.dispatch(event).thenAccept { chatEvent ->
+            if (!chatEvent.isCancelled) {
+                val formatted = chatEvent.formatter.format(chatEvent.sender, chatEvent.content)
+                for (target in chatEvent.targets) target.sendMessage(formatted)
+            }
+        }
+    }
+
+    fun sendMessage(message: String) {
+        playerRef.sendMessage(Message.raw(message))
+    }
+
+    fun disconnect() {
+        Universe.get().removePlayer(playerRef)
+    }
 
     fun runCommand(command: String): CompletableFuture<Void> {
         val stripped = if (command.startsWith("/")) command.substring(1) else command
@@ -34,7 +82,7 @@ class SimulatedPlayer private constructor(
             val uuid = UUID.randomUUID()
             val channel = FakeChannelConnection()
 
-            val routing = HytestPlugin.EVENTS!!.register(PlayerConnectEvent::class.java) { event ->
+            val routing: EventRegistration<*, *>? = HytestPlugin.EVENTS!!.register(PlayerConnectEvent::class.java) { event ->
                 if (uuid == event.playerRef.uuid) event.world = world
             }
 
@@ -52,7 +100,7 @@ class SimulatedPlayer private constructor(
                     CompletableFuture.failedFuture<SimulatedPlayer>(
                         IllegalStateException("simulated player rejected by Universe.addPlayer (uuid=$uuid, name=$name)"))
                 else
-                    CompletableFuture.completedFuture(SimulatedPlayer(playerRef, uuid, name))
+                    CompletableFuture.completedFuture(SimulatedPlayer(world, playerRef, uuid, name))
             }.whenComplete { _, _ ->
                 readyCompleter.cancel(false)
                 routing?.unregister()

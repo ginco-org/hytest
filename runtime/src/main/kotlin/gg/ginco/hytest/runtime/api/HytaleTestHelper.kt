@@ -66,6 +66,29 @@ class HytaleTestHelper(val world: World) {
         if (actual != expected) throw AssertionError("expected $expected player(s) in world, got $actual")
     }
 
+    fun assertPlayerValid(player: SimulatedPlayer, message: String = "player should be valid") {
+        if (!player.isValid()) throw AssertionError(message)
+    }
+
+    fun assertPlayerNear(
+        player: SimulatedPlayer, x: Double, y: Double, z: Double,
+        tolerance: Double, message: String = "player position"
+    ) {
+        val pos = player.transform().position
+        val dx = pos.x - x
+        val dy = pos.y - y
+        val dz = pos.z - z
+        val distSq = dx * dx + dy * dy + dz * dz
+        if (distSq > tolerance * tolerance) {
+            throw AssertionError("$message: expected near ($x, $y, $z) within $tolerance, " +
+                "got (${pos.x}, ${pos.y}, ${pos.z})")
+        }
+    }
+
+    fun waitForTicks(ticks: Long) {
+        Thread.sleep(maxOf(0L, ticks) * 50L)
+    }
+
     fun runOnWorld(action: Runnable) {
         try { CompletableFuture.runAsync(action, world).join() }
         catch (e: CompletionException) {

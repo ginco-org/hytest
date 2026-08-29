@@ -87,14 +87,14 @@ pluginManagement {
 **`build.gradle.kts`**
 ```kotlin
 plugins {
-    id("gg.ginco.hygradle") version "0.2.0"   // plugin build setup + server provisioning
+    id("gg.ginco.hygradle") version "0.4.0"   // plugin build setup + server provisioning
     id("gg.ginco.hytest")   version "0.1.0"   // this framework
 }
 
 hytale {
     group = "MyGroup"
     mainClass = "com.example.myplugin.MyPlugin"
-    serverVersion = "0.5.6"
+    serverVersion = "0.6.2"
 }
 ```
 
