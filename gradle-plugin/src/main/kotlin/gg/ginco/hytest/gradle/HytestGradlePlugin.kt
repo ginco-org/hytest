@@ -48,6 +48,23 @@ class HytestGradlePlugin : Plugin<Project> {
 
         val mergedJar = registerMergedJarTask(project, runtimePlugin, hytaleTest, main)
         registerTestTask(project, ext, sourceSets, mergedJar)
+        wireServerProvisioning(project)
+    }
+
+    /**
+     * When hygradle is applied, make `hytaleTest` depend on its `provisionServer`
+     * task so a clean checkout downloads the server files before testing. Standalone
+     * hytest (no hygradle) is untouched, and hygradle versions without the task
+     * (e.g. 0.4.0) keep the explicit error message.
+     */
+    private fun wireServerProvisioning(project: Project) {
+        val hytaleTest = project.tasks.named("hytaleTest", Test::class.java)
+        project.pluginManager.withPlugin("gg.ginco.hygradle") {
+            project.afterEvaluate {
+                val provision = project.tasks.findByName("provisionServer") ?: return@afterEvaluate
+                hytaleTest.configure { it.dependsOn(provision) }
+            }
+        }
     }
 
     private fun wireSourceSetToMain(project: Project, hytaleTest: SourceSet, main: SourceSet) {
@@ -92,8 +109,15 @@ class HytestGradlePlugin : Plugin<Project> {
             test.useJUnitPlatform()
             test.dependsOn(mergedJar)
 
-            test.systemProperty("hytest.serverDir",
-                project.layout.buildDirectory.dir("hytale-server").get().asFile.absolutePath)
+            // Captured here (task realization, after project evaluation) so user
+            // hytest { } / hytale { server { } } config wins. Only serializable
+            // locals are captured into execution-time lambdas below.
+            val serverDir = ext.serverDir.get().asFile
+            val explicitServerJar = ext.serverJar.orNull?.let { project.file(it) }
+            val explicitAssets = ext.assets.orNull?.let { project.file(it) }
+            val gradleUserHome = project.gradle.gradleUserHomeDir
+
+            test.systemProperty("hytest.serverDir", serverDir.absolutePath)
             test.systemProperty("hytest.jvmArgs", ext.jvmArgs.get().joinToString(" "))
             test.systemProperty("hytest.timeoutSeconds", ext.timeoutSeconds.get().toString())
             test.systemProperty("hytest.showServerLogs", ext.showServerLogs.get().toString())
@@ -101,17 +125,20 @@ class HytestGradlePlugin : Plugin<Project> {
                 test.systemProperty("hytest.java", ext.javaExecutable.get())
             }
 
-            val serverJar = resolveServerJar(project, ext)
-            val assets = resolveAssets(project, ext)
-            test.systemProperty("hytest.serverJar", serverJar.absolutePath)
-            if (assets.isFile) {
-                test.systemProperty("hytest.assets", assets.absolutePath)
-            }
+            // Resolved in doFirst — after provisionServer (a task dependency) has
+            // run, but before the task action spawns the test worker. Must stay a
+            // plain string: Test's systemProperties map stringifies Providers.
             test.doFirst {
+                val serverJar = resolveServerJar(serverDir, explicitServerJar, gradleUserHome)
                 require(serverJar.isFile) {
-                    "HytaleServer.jar not found. Run './gradlew runServer' once to provision the " +
-                        "server, or configure hytest { serverJar } / serverDir. " +
-                        "Searched: ${serverJar.absolutePath}"
+                    "HytaleServer.jar not found. Run './gradlew provisionServer' (requires the " +
+                        "'gg.ginco.hygradle' plugin) to download the server files, or configure " +
+                        "hytest { serverJar } / serverDir. " +
+                        "Searched: ${serverDir.absolutePath}"
+                }
+                test.systemProperty("hytest.serverJar", serverJar.absolutePath)
+                resolveAssets(serverDir, explicitAssets, gradleUserHome)?.let {
+                    test.systemProperty("hytest.assets", it.absolutePath)
                 }
             }
             test.systemProperty("hytest.pluginJar",
@@ -119,13 +146,28 @@ class HytestGradlePlugin : Plugin<Project> {
         }
     }
 
-    private fun resolveServerJar(project: Project, ext: HytestExtension): File =
-        if (ext.serverJar.isPresent) project.file(ext.serverJar.get())
-        else ext.serverDir.file("HytaleServer.jar").get().asFile
+    /**
+     * Resolution order: explicit `hytest { serverJar }`, then the server dir
+     * (hygradle's run dir), then hygradle's per-version download cache as
+     * populated by its `provisionServer` task. If nothing exists yet, the
+     * default run-dir location is returned so error messages point at it.
+     */
+    private fun resolveServerJar(serverDir: File, explicit: File?, gradleUserHome: File): File =
+        explicit ?: hygradleServerFile(serverDir, gradleUserHome, "HytaleServer.jar")
+            ?: File(serverDir, "HytaleServer.jar")
 
-    private fun resolveAssets(project: Project, ext: HytestExtension): File =
-        if (ext.assets.isPresent) project.file(ext.assets.get())
-        else ext.serverDir.file("Assets.zip").get().asFile
+    private fun resolveAssets(serverDir: File, explicit: File?, gradleUserHome: File): File? =
+        explicit?.takeIf { it.isFile }
+            ?: hygradleServerFile(serverDir, gradleUserHome, "Assets.zip")
+
+    private fun hygradleServerFile(serverDir: File, gradleUserHome: File, name: String): File? {
+        File(serverDir, name).takeIf { it.isFile }?.let { return it }
+        val marker = File(serverDir, ".hygradle-version")
+        if (!marker.isFile) return null
+        val version = marker.readText().trim()
+        if (version.isEmpty()) return null
+        return File(gradleUserHome, "caches/hygradle/server/$version/$name").takeIf { it.isFile }
+    }
 
     private fun applyHygradleDefaults(project: Project, ext: HytestExtension) {
         val hytale = project.extensions.findByName("hytale") ?: return
