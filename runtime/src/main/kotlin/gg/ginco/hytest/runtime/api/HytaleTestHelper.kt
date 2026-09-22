@@ -92,8 +92,12 @@ class HytaleTestHelper(val world: World) {
     fun runOnWorld(action: Runnable) {
         try { CompletableFuture.runAsync(action, world).join() }
         catch (e: CompletionException) {
-            val cause = e.cause ?: e
-            throw if (cause is RuntimeException) cause else e
+            // Always rethrow the CAUSE. The old code rethrew the raw
+            // CompletionException for non-RuntimeException causes, which broke
+            // succeedWhen: it catches AssertionError to keep polling, but the
+            // wrapper is a CompletionException, so the first failed poll failed
+            // the whole test instead of retrying.
+            throw (e.cause ?: e)
         }
     }
 
