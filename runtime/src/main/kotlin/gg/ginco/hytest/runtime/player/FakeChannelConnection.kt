@@ -17,17 +17,50 @@ import java.util.function.BiConsumer
 import java.util.function.BooleanSupplier
 import java.util.logging.Level
 
+import com.hypixel.hytale.protocol.packets.interface_.ServerMessage
+import java.util.concurrent.ConcurrentLinkedDeque
+
+/**
+ * A no-op [ChannelConnection] that records what the server "sends" to a
+ * simulated player.
+ *
+ * All packet writes are discarded (nothing goes on a wire), but text packets
+ * ([ServerMessage] — chat, command responses, system messages) are captured as
+ * their plain [FormattedMessage.rawText] so tests can assert what the server
+ * told the player. Capture is bounded to [MAX_CAPTURED_MESSAGES] entries and
+ * thread-safe: writes happen on the world thread, tests read from the test
+ * body thread.
+ */
 class FakeChannelConnection : ChannelConnection {
 
     @Volatile
     var capturedHandler: PacketHandler? = null
         private set
 
+    private val capturedMessages = ConcurrentLinkedDeque<String>()
+
+    private fun record(packet: ToClientPacket) {
+        if (packet !is ServerMessage) return
+        val text = packet.message?.rawText ?: return
+        capturedMessages.addLast(text)
+        while (capturedMessages.size > MAX_CAPTURED_MESSAGES) capturedMessages.pollFirst()
+    }
+
+    /** Snapshot of the captured message texts, oldest first. Not drained. */
+    fun receivedMessages(): List<String> = capturedMessages.toList()
+
+    /** [receivedMessages], clearing the capture. */
+    fun drainReceivedMessages(): List<String> {
+        val out = receivedMessages()
+        capturedMessages.clear()
+        return out
+    }
+
     override fun flush() {}
-    override fun write(packet: ToClientPacket) {}
-    override fun writeAndFlush(packet: ToClientPacket) {}
-    override fun write(packets: Array<out ToClientPacket>) {}
-    override fun writeAndFlush(packets: Array<out ToClientPacket>) {}
+    override fun write(packet: ToClientPacket) { record(packet) }
+    override fun writeAndFlush(packet: ToClientPacket) { record(packet) }
+    override fun write(packets: Array<out ToClientPacket>) { packets.forEach(::record) }
+    override fun writeAndFlush(packets: Array<out ToClientPacket>) { packets.forEach(::record) }
     override fun isActive(): Boolean = true
     override fun isWritable(): Boolean = true
     override fun remoteAddress(): SocketAddress = InetSocketAddress(0)
@@ -63,4 +96,9 @@ class FakeChannelConnection : ChannelConnection {
     override fun closeApplicationConnection(errorCode: QuicApplicationErrorCode) {}
     override fun closeApplicationConnection(errorCode: QuicApplicationErrorCode, reason: FormattedMessage) {}
     override fun updateStreamPriority(urgency: Int, incremental: Boolean) {}
+
+    private companion object {
+        /** Keeps long sessions from growing the capture without bound. */
+        const val MAX_CAPTURED_MESSAGES = 256
+    }
 }

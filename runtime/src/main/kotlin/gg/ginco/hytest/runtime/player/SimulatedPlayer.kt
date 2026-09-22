@@ -22,7 +22,8 @@ class SimulatedPlayer private constructor(
     val world: World,
     private val playerRef: PlayerRef,
     val uuid: UUID,
-    val name: String
+    val name: String,
+    private val channel: FakeChannelConnection,
 ) {
     fun ref(): PlayerRef = playerRef
 
@@ -67,6 +68,22 @@ class SimulatedPlayer private constructor(
         playerRef.sendMessage(Message.raw(message))
     }
 
+    /**
+     * Plain text of every message packet the server has written to this
+     * player — chat, command responses, system messages — oldest first.
+     *
+     * Capture is synchronous with command execution: after `runCommand(...).join()`
+     * the response text is already here. Bounded to the most recent
+     * [FakeChannelConnection.MAX_CAPTURED_MESSAGES] entries.
+     */
+    fun receivedMessages(): List<String> = channel.receivedMessages()
+
+    /** [receivedMessages], clearing the capture — use between commands to keep assertions scoped. */
+    fun drainReceivedMessages(): List<String> = channel.drainReceivedMessages()
+
+    /** True if any captured message contains [fragment]. */
+    fun sawMessage(fragment: String): Boolean = receivedMessages().any { fragment in it }
+
     fun disconnect() {
         Universe.get().removePlayer(playerRef)
     }
@@ -100,7 +117,7 @@ class SimulatedPlayer private constructor(
                     CompletableFuture.failedFuture<SimulatedPlayer>(
                         IllegalStateException("simulated player rejected by Universe.addPlayer (uuid=$uuid, name=$name)"))
                 else
-                    CompletableFuture.completedFuture(SimulatedPlayer(world, playerRef, uuid, name))
+                    CompletableFuture.completedFuture(SimulatedPlayer(world, playerRef, uuid, name, channel))
             }.whenComplete { _, _ ->
                 readyCompleter.cancel(false)
                 routing?.unregister()
