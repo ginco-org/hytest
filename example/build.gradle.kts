@@ -9,13 +9,8 @@ hytale {
     group = "Example"
     name = "HytestExample"
     mainClass = "com.example.ExamplePlugin"
-    serverVersion = "0.6.2"
+    serverVersion = "0.6.8"
     server {
         serverDir = file("../run")
     }
-}
-
-hytest {
-    serverJar = file("../run/HytaleServer.jar").absolutePath
-    assets = file("../run/Assets.zip").absolutePath
 }

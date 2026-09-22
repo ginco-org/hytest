@@ -71,9 +71,11 @@ Three artifacts:
 
 - **Java 25** (the Hytale server requires JRE 25)
 - **Gradle** (the plugin applies the Java plugin and a 25 toolchain)
-- A **Hytale server** (`HytaleServer.jar` + `Assets.zip`) — provisioned by
-  [`hygradle`](https://github.com/ginco-org/hygradle)'s `runServer`, or any
-  existing server directory. hytest cooperates with hygradle automatically.
+- A **Hytale server** (`HytaleServer.jar` + `Assets.zip`). When the
+  [`hygradle`](https://github.com/ginco-org/hygradle) plugin is applied, hytest
+  declares a dependency on its `provisionServer` task, so `hytaleTest` downloads
+  the server files automatically on a clean checkout. Without hygradle, point
+  hytest at any existing server directory via `hytest { serverJar } / serverDir`.
 
 ## Setup
 
@@ -94,12 +96,13 @@ plugins {
 hytale {
     group = "MyGroup"
     mainClass = "com.example.myplugin.MyPlugin"
-    serverVersion = "0.6.2"
+    serverVersion = "0.6.8"
 }
 ```
 
-That's it — hytest adds a `hytaleTest` source set and a `hytaleTest` task, and
-reuses hygradle's server directory and compile-only server API.
+That's it — hytest adds a `hytaleTest` source set and a `hytaleTest` task,
+reuses hygradle's server directory and compile-only server API, and runs
+hygradle's `provisionServer` first when the server files are missing.
 
 ## Writing tests
 
