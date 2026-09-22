@@ -90,6 +90,11 @@ class HytestGradlePlugin : Plugin<Project> {
             jar.archiveBaseName.set("Hytest")
             jar.archiveClassifier.set("")
             jar.duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+            // The provider below loses build dependencies (zipTree of resolved
+            // files is not Buildable), so wire the runtime jar explicitly —
+            // otherwise this task runs before runtime/build/libs/*.jar exists
+            // on a clean checkout and fails with "Cannot expand ZIP".
+            jar.dependsOn(runtimePlugin)
             jar.from(project.provider {
                 runtimePlugin.files.filter { it.name.endsWith(".jar") }.map { project.zipTree(it) } as Iterable<*>
             })

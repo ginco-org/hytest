@@ -89,7 +89,7 @@ pluginManagement {
 **`build.gradle.kts`**
 ```kotlin
 plugins {
-    id("gg.ginco.hygradle") version "0.4.0"   // plugin build setup + server provisioning
+    id("gg.ginco.hygradle") version "0.5.0"   // plugin build setup + server provisioning
     id("gg.ginco.hytest")   version "0.1.0"   // this framework
 }
 
@@ -226,18 +226,23 @@ The `@HytaleTest` annotation:
 
 ## Configuration
 
-The `hytest { }` extension. Defaults mirror hygradle when it is applied.
+The `hytest { }` extension. Defaults mirror hygradle when it is applied, so with
+hygradle you normally need no `hytest { }` block at all — leave `serverJar` and
+`assets` unset and let `provisionServer` populate hygradle's `run/`. Overrides
+are only for pointing hytest at a server outside that directory.
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `version` | `String` | `0.1.0` | Hytest artifact version to depend on |
 | `serverDir` | `Directory` | hygradle's `run/` | Where to find `HytaleServer.jar` + `Assets.zip` |
-| `serverJar` | `String` | `<serverDir>/HytaleServer.jar` | Explicit server jar (overrides `serverDir`) |
-| `assets` | `String` | `<serverDir>/Assets.zip` | Explicit assets dir or zip (overrides `serverDir`) |
+| `serverJar` | `String` | `<serverDir>/HytaleServer.jar` | Explicit server jar (overrides `serverDir`; bypasses provisioning) |
+| `assets` | `String` | `<serverDir>/Assets.zip` | Explicit assets dir or zip (overrides `serverDir`; bypasses provisioning) |
 | `javaExecutable` | `String` | build JDK | Java used to launch the server |
 | `jvmArgs` | `List<String>` | `-Xmx4G -Xms1G` | JVM args for the server process |
 | `timeoutSeconds` | `Long` | `300` | Per-run server budget |
 | `showServerLogs` | `Boolean` | `false` | Forward server stdout/stderr to the build console |
+
+Only when using a server that hygradle did not provision:
 
 ```kotlin
 hytest {
