@@ -46,7 +46,9 @@ class HytestGradlePlugin : Plugin<Project> {
         project.dependencies.add(hytaleTest.runtimeOnlyConfigurationName,
             "org.junit.platform:junit-platform-launcher:$junitPlatform")
 
-        val mergedJar = registerMergedJarTask(project, runtimePlugin, hytaleTest, main)
+        val manifestTask = registerHytestManifestTask(project)
+        val mergedJar = registerMergedJarTask(project, runtimePlugin, hytaleTest, main, manifestTask)
+        configurePluginUnderTestManifest(project, manifestTask)
         registerTestTask(project, ext, sourceSets, mergedJar)
         wireServerProvisioning(project)
     }
@@ -83,7 +85,11 @@ class HytestGradlePlugin : Plugin<Project> {
     }
 
     private fun registerMergedJarTask(
-        project: Project, runtimePlugin: Configuration, hytaleTest: SourceSet, main: SourceSet
+        project: Project,
+        runtimePlugin: Configuration,
+        hytaleTest: SourceSet,
+        main: SourceSet,
+        manifestTask: TaskProvider<HytestManifestTask>,
     ): TaskProvider<Jar> =
         project.tasks.register("createHytaleTestPlugin", Jar::class.java) { jar ->
             jar.description = "Builds the merged Hytest plugin jar (runtime + hytaleTest classes) for server deployment."
@@ -95,12 +101,74 @@ class HytestGradlePlugin : Plugin<Project> {
             // otherwise this task runs before runtime/build/libs/*.jar exists
             // on a clean checkout and fails with "Cannot expand ZIP".
             jar.dependsOn(runtimePlugin)
+            // The generated manifest must be added FIRST: with EXCLUDE the
+            // first occurrence of a duplicate wins, and manifest.json also
+            // ships inside the runtime jar. Whose manifest this is decides
+            // which plugin Main the server instantiates — see
+            // [configurePluginUnderTestManifest].
+            jar.from(manifestTask)
             jar.from(project.provider {
                 runtimePlugin.files.filter { it.name.endsWith(".jar") }.map { project.zipTree(it) } as Iterable<*>
             })
             jar.from(hytaleTest.output)
             jar.from(main.output.classesDirs)
         }
+
+    /**
+     * Registers the [HytestManifestTask] with hytest's own identity as
+     * defaults (legacy single-plugin mode: the merged jar is a hytest plugin).
+     */
+    private fun registerHytestManifestTask(project: Project): TaskProvider<HytestManifestTask> {
+        val ext = project.extensions.getByType(HytestExtension::class.java)
+        return project.tasks.register("hytestPluginManifest", HytestManifestTask::class.java) { task ->
+            task.group = "hytale"
+            task.description = "Generates the merged Hytest jar's manifest.json"
+            task.hytestVersion.set(ext.version)
+            task.pluginGroup.set("Ginco")
+            task.pluginName.set("Hytest")
+            task.pluginVersion.set(ext.version)
+            task.pluginMainClass.set("gg.ginco.hytest.runtime.HytestPlugin")
+            task.manifestFile.set(project.layout.buildDirectory.file("generated/hytest/manifest.json"))
+        }
+    }
+
+    /**
+     * With hygradle the merged jar ships the plugin under test's identity
+     * (Main = the real plugin) with hytest attached as a sub-plugin, so the
+     * server loads BOTH from one jar/classloader: the plugin under test gets
+     * its real lifecycle and test classes share its class identity. Without
+     * hygradle (or with an incomplete `hytale { }` block) the defaults stay
+     * and the jar remains a plain hytest plugin.
+     */
+    private fun configurePluginUnderTestManifest(project: Project, manifestTask: TaskProvider<HytestManifestTask>) {
+        project.pluginManager.withPlugin("gg.ginco.hygradle") {
+            project.afterEvaluate {
+                val hytale = project.extensions.findByName("hytale") ?: return@afterEvaluate
+                fun prop(name: String): String? = try {
+                    @Suppress("UNCHECKED_CAST")
+                    (hytale.javaClass.getMethod(name).invoke(hytale) as org.gradle.api.provider.Property<String>).orNull
+                } catch (_: Exception) { null }
+
+                val group = prop("getGroup")
+                val name = prop("getName")
+                val mainClass = prop("getMainClass")
+                if (group.isNullOrBlank() || name.isNullOrBlank() || mainClass.isNullOrBlank()) {
+                    project.logger.warn(
+                        "hytest: hygradle is applied but hytale { group / name / mainClass } is incomplete — " +
+                        "the Hytest test jar will NOT load the plugin under test (legacy single-plugin mode).")
+                    return@afterEvaluate
+                }
+                manifestTask.configure { task ->
+                    task.pluginGroup.set(group)
+                    task.pluginName.set(name)
+                    task.pluginVersion.set(project.version.toString())
+                    task.pluginMainClass.set(mainClass)
+                    prop("getDescription")?.let { task.pluginDescription.set(it) }
+                    prop("getServerVersion")?.let { task.pluginServerVersion.set(it) }
+                }
+            }
+        }
+    }
 
     private fun registerTestTask(
         project: Project, ext: HytestExtension, sourceSets: SourceSetContainer, mergedJar: TaskProvider<Jar>

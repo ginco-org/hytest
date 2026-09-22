@@ -260,9 +260,14 @@ hytest {
   needed in the test JVM. JUnit's standard class/method filters work as usual.
 - **Execution** merges `hytest-runtime` with your compiled tests into a single
   plugin jar, drops it into a fresh server's `mods/`, and launches the server
-  with `hytest.run=true`. The runtime discovers tests in-server (where the
-  classes live), runs each in its own void world, and streams compact JSON
-  frames on stdout; the engine maps them back to JUnit results.
+  with `hytest.run=true`. The jar's manifest is **your plugin's manifest** (from
+  the `hytale { }` extension) with hytest attached as a `SubPlugins` entry, so
+  the server loads your real plugin — identity, data directory and full
+  `setup()`/`start()` lifecycle — plus hytest from the same jar and classloader.
+  Without hygradle the jar stays a plain hytest plugin (your plugin is not
+  loaded; mount it yourself if needed). The runtime discovers tests in-server
+  (where the classes live), runs each in its own void world, and streams
+  compact JSON frames on stdout; the engine maps them back to JUnit results.
 
 ## Project layout
 
