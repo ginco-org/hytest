@@ -101,6 +101,17 @@ class HytaleTestHelper(val world: World) {
         }
     }
 
+    /**
+     * Like [runOnWorld] but returns the action's value: read store/entity state
+     * on the world thread and hand it back to the (off-thread) test body. The
+     * result should be an immutable snapshot — entity objects can only be
+     * touched again on the world thread.
+     */
+    fun <T> runOnWorldReturning(action: () -> T): T {
+        return try { CompletableFuture.supplyAsync(action, world).join() }
+        catch (e: CompletionException) { throw (e.cause ?: e) }
+    }
+
     fun failure(): Throwable? = failure
 
     fun doneFuture(): CompletableFuture<Void> = done
