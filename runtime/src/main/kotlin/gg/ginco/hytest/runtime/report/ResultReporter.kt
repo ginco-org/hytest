@@ -26,6 +26,23 @@ object ResultReporter {
         emit(frame)
     }
 
+    /**
+     * Reports a test the run is abandoning without a pass/fail verdict (e.g.
+     * the server is shutting down mid-suite). Rides the same test_finished
+     * frame type with status "aborted" so the engine maps it to a FAILURE —
+     * an abandoned test must never render as a green skip.
+     */
+    fun testAborted(className: String, method: String, reason: String) {
+        emit(linkedMapOf(
+            "type" to "test_finished",
+            "class" to className,
+            "method" to method,
+            "status" to "aborted",
+            "durationMs" to 0L,
+            "error" to reason
+        ))
+    }
+
     fun runFinished(total: Int, passed: Int, failed: Int, exitCode: Int) {
         emit(linkedMapOf(
             "type" to "run_finished",

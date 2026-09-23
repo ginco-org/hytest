@@ -7,6 +7,7 @@ import gg.ginco.hytest.runtime.discover.ClasspathTestScanner
 import gg.ginco.hytest.runtime.report.ResultReporter
 import gg.ginco.hytest.runtime.world.TestWorldFactory
 import java.lang.reflect.InvocationTargetException
+import java.util.Collections
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -16,6 +17,10 @@ object TestRunner {
         Thread(r, "hytest-test-body").apply { isDaemon = true }
     }
 
+    // Tests this run still owes a verdict for, drained as each reports.
+    // Lets a torn-down run name exactly which tests were abandoned.
+    private val pendingVerdicts = Collections.synchronizedSet(LinkedHashSet<TestDescriptor>())
+
     fun runAsync() {
         val loader = TestRunner::class.java.classLoader
         val tests = ClasspathTestScanner.discover(loader)
@@ -23,6 +28,8 @@ object TestRunner {
             ResultReporter.warning("no @HytaleTest methods found — ensure tests are in src/hytaleTest/java/")
         }
         ResultReporter.runStarted(tests.size)
+
+        pendingVerdicts.addAll(tests)
 
         var chain = CompletableFuture.completedFuture<Void>(null)
         val passed = intArrayOf(0)
@@ -37,6 +44,24 @@ object TestRunner {
         }
 
         val runReported = AtomicBoolean(false)
+        // A server killed mid-suite still runs JVM shutdown hooks; use that
+        // window to report the abandoned tests as aborted (a FAILURE on the
+        // engine side) instead of leaving them as silent never-rans.
+        Runtime.getRuntime().addShutdownHook(Thread({
+            try {
+                if (runReported.getAndSet(true)) return@Thread
+                val abandoned = synchronized(pendingVerdicts) { pendingVerdicts.toList() }
+                for (desc in abandoned) {
+                    ResultReporter.testAborted(desc.testClass.name, desc.method.name,
+                        "server shut down before this test ran — the test run was torn down mid-flight")
+                }
+                ResultReporter.runFinished(tests.size, passed[0],
+                    failed[0] + abandoned.size, if (abandoned.isEmpty() && failed[0] == 0) 0 else 1)
+            } catch (_: Throwable) {
+                // best-effort: stdout may already be gone during shutdown
+            }
+        }, "hytest-shutdown-report"))
+
         chain.whenComplete { _, ex ->
             if (runReported.getAndSet(true)) return@whenComplete
             val total = passed[0] + failed[0]
@@ -121,6 +146,7 @@ object TestRunner {
     }
 
     private fun report(desc: TestDescriptor, start: Long, passed: Boolean, error: Throwable?) {
+        pendingVerdicts.remove(desc)
         ResultReporter.testFinished(
             desc.testClass.name, desc.method.name, passed,
             System.currentTimeMillis() - start, error)
