@@ -64,7 +64,7 @@ abstract class HytestManifestTask : DefaultTask() {
             append("  \"Main\": ").append(quote(pluginMainClass.get())).append(",\n")
             val serverVersion = pluginServerVersion.orNull
             if (!serverVersion.isNullOrBlank()) {
-                append("  \"ServerVersion\": ").append(quote(serverVersion)).append(",\n")
+                append("  \"ServerVersion\": ").append(quote(toSemverRange(serverVersion))).append(",\n")
             }
             append("  \"SubPlugins\": [\n")
             append("    {\n")
@@ -81,4 +81,17 @@ abstract class HytestManifestTask : DefaultTask() {
 
     private fun quote(value: String): String =
         "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+    /**
+     * hygradle normalizes the same input before writing its own manifests
+     * (`ManifestJsonKt.toSemverRange`); the merged manifest must match or the
+     * server rejects it — 0.6.x `SemverRange` refuses bare versions whose
+     * patch is non-zero ("0.6.8") while accepting exact ("=0.6.8") and range
+     * ("^0.6.8", "0.6.x", …) forms.
+     */
+    private fun toSemverRange(version: String): String {
+        val trimmed = version.trim()
+        if (trimmed.isEmpty()) return trimmed
+        return if (trimmed.first().isDigit()) "=$trimmed" else trimmed
+    }
 }
