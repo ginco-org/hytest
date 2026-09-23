@@ -32,7 +32,7 @@ object ServerProcess {
         methods: Map<String, MethodDescriptorRef>,
         listener: EngineExecutionListener,
         showServerLogs: Boolean
-    ) {
+    ): RunOutcome {
         val config = Config.fromSystemProperties()
         val process = startServer(config)
         val queue = LinkedBlockingQueue<Frame>()
@@ -46,9 +46,33 @@ object ServerProcess {
 
         val deadline = System.currentTimeMillis() + config.timeoutMillis
         try {
-            dispatch(methods, listener, queue, serverOutput, deadline)
+            return dispatch(methods, listener, queue, serverOutput, deadline, config.timeoutMillis)
         } finally {
             ensureTerminated(process, deadline)
+        }
+    }
+
+    /**
+     * How the run actually ended, so [HytestEngine] can finish its root with a
+     * result matching reality. A run that lost tests to a dead server or an
+     * expired budget must surface as a failure — never as a green build with
+     * quiet skips.
+     */
+    class RunOutcome(
+        private val failedTests: Int,
+        private val unfinishedTests: Int,
+        private val endSummary: String?
+    ) {
+        fun rootResult(): TestExecutionResult {
+            if (failedTests == 0 && unfinishedTests == 0 && endSummary == null) {
+                return TestExecutionResult.successful()
+            }
+            val parts = ArrayList<String>(3)
+            if (failedTests > 0) parts.add("$failedTests test(s) failed")
+            if (unfinishedTests > 0) parts.add("$unfinishedTests discovered test(s) never finished")
+            endSummary?.let { parts.add(it) }
+            return TestExecutionResult.failed(
+                AssertionError("Hytale test run failed: ${parts.joinToString("; ")}"))
         }
     }
 
@@ -57,12 +81,20 @@ object ServerProcess {
         listener: EngineExecutionListener,
         queue: LinkedBlockingQueue<Frame>,
         serverOutput: ArrayDeque<String>,
-        deadline: Long
-    ) {
+        deadline: Long,
+        runBudgetMillis: Long
+    ): RunOutcome {
         val startedKeys = linkedSetOf<String>()
         val finishedKeys = linkedSetOf<String>()
         val startedClasses = linkedSetOf<ClassDescriptorRef>()
         var runFinished = false
+        var serverDied = false
+        var testFailures = 0
+        // Failures the server told us about for tests this engine never
+        // discovered — invisible as leaf results, so they must reach the root.
+        val unknownFailures = linkedSetOf<String>()
+        var runExitCode: Int? = null
+        var runReportedFailures: Int? = null
 
         while (true) {
             val remaining = deadline - System.currentTimeMillis()
@@ -73,11 +105,22 @@ object ServerProcess {
                 Thread.currentThread().interrupt(); break
             }
             if (frame == null) continue
-            if (frame === EOF) break
+            if (frame === EOF) { serverDied = true; break }
             when (frame.type) {
                 "test_started" -> startTest(frame, methods, listener, startedKeys, startedClasses)
-                "test_finished" -> finishTest(frame, methods, listener, finishedKeys, startedClasses)
-                "run_finished" -> runFinished = true
+                "test_finished" -> {
+                    val ref = methods[frame.testKey()]
+                    if (ref == null) {
+                        if (frame.status != "passed") unknownFailures.add(frame.testKey())
+                    } else if (finishTest(frame, ref, listener, finishedKeys, startedClasses)) {
+                        testFailures++
+                    }
+                }
+                "run_finished" -> {
+                    runFinished = true
+                    runExitCode = frame.exitCode
+                    runReportedFailures = frame.failedCount
+                }
                 "warning" -> System.err.println("[hytest] ${frame.message}")
             }
             if (runFinished) break
@@ -93,16 +136,52 @@ object ServerProcess {
             }
         }
 
+        // A discovered test with no reported verdict is a FAILURE, not a skip:
+        // Gradle renders aborted/skipped as green, and "the plugin never loaded"
+        // must never look like a passing suite.
+        val unfinishedReason = when {
+            serverDied -> "server exited before this test ran — " +
+                "the test plugin may have failed to load; check showServerLogs"
+            !runFinished -> "run budget of ${runBudgetMillis / 1000}s expired before this test ran — " +
+                "the server may have hung or the test plugin may have failed to load; check showServerLogs"
+            else -> "the server reported the run finished without ever reporting this test — " +
+                "runtime and Gradle-side discovery disagree, or server output was truncated"
+        }
+        var unfinished = 0
         for (ref in methods.values) {
             if (ref.descriptor.key() in finishedKeys) continue
+            unfinished++
             startTestMethod(ref, listener, startedKeys, startedClasses)
             listener.executionFinished(ref.descriptor,
-                TestExecutionResult.aborted(AssertionError(
-                    "server exited without reporting a result for ${ref.descriptor.className}.${ref.descriptor.methodName}")))
+                TestExecutionResult.failed(AssertionError(unfinishedReason)))
         }
         for (classRef in startedClasses) {
             listener.executionFinished(classRef.descriptor, TestExecutionResult.successful())
         }
+
+        // Wire run_finished's verdict through: if the server itself says the
+        // run failed but no failed test frame reached this engine, the leaf
+        // results cannot fail the build — only the root result can.
+        val serverSaidFailed = (runExitCode ?: 0) != 0 || (runReportedFailures ?: 0) > 0
+        val exitMismatch = if (runFinished && serverSaidFailed && testFailures == 0 && unfinished == 0) {
+            "run_finished reported exitCode=$runExitCode with ${runReportedFailures ?: "?"} failing test(s)" +
+                (if (unknownFailures.isNotEmpty())
+                    " that the engine never discovered (${unknownFailures.joinToString(", ")})" else "") +
+                " — the server-side run failed, so the build fails"
+        } else null
+
+        val endSummary = exitMismatch ?: when {
+            unfinished > 0 && serverDied ->
+                "server exited before $unfinished test(s) ran — " +
+                "the test plugin may have failed to load; check showServerLogs"
+            unfinished > 0 && !runFinished ->
+                "run budget of ${runBudgetMillis / 1000}s expired with $unfinished test(s) unrun"
+            unfinished > 0 ->
+                "run finished with $unfinished discovered test(s) never reported"
+            else -> null
+        }
+
+        return RunOutcome(testFailures, unfinished, endSummary)
     }
 
     private fun startTestMethod(
@@ -126,21 +205,26 @@ object ServerProcess {
         startTestMethod(ref, listener, startedKeys, startedClasses)
     }
 
+    /** Records one finished test; returns true when it finished as a failure. */
     private fun finishTest(
-        frame: Frame, methods: Map<String, MethodDescriptorRef>,
+        frame: Frame, ref: MethodDescriptorRef,
         listener: EngineExecutionListener, finishedKeys: MutableSet<String>,
         startedClasses: MutableSet<ClassDescriptorRef>
-    ) {
-        val ref = methods[frame.testKey()] ?: return
-        if (!finishedKeys.add(frame.testKey())) return
+    ): Boolean {
+        if (!finishedKeys.add(frame.testKey())) return false
+        // Everything except "passed" — including the runtime's "aborted"
+        // status — maps to FAILURE on purpose: TestExecutionResult.aborted()
+        // renders as *skipped* in Gradle, and a suite the server abandoned
+        // mid-flight must never count as green.
         val result = if (frame.status == "passed") TestExecutionResult.successful()
-        else TestExecutionResult.failed(AssertionError(frame.error))
+        else TestExecutionResult.failed(AssertionError(frame.error ?: "test ${frame.status}"))
         listener.executionFinished(ref.descriptor, result)
 
         ref.classRef.methodFinished()
         if (ref.classRef.allMethodsFinished() && startedClasses.remove(ref.classRef)) {
             listener.executionFinished(ref.classRef.descriptor, TestExecutionResult.successful())
         }
+        return frame.status != "passed"
     }
 
     private fun startServer(config: Config): Process {

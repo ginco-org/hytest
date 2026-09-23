@@ -57,8 +57,10 @@ class HytestEngine : TestEngine {
         listener.executionStarted(root)
         val showServerLogs = System.getProperty("hytest.showServerLogs", "false").toBoolean()
         try {
-            ServerProcess.run(methodRefs, listener, showServerLogs)
-            listener.executionFinished(root, TestExecutionResult.successful())
+            val outcome = ServerProcess.run(methodRefs, listener, showServerLogs)
+            // The root mirrors the run: a suite whose tests died with the
+            // server must fail the build, not dissolve into green skips.
+            listener.executionFinished(root, outcome.rootResult())
         } catch (e: RuntimeException) {
             listener.executionFinished(root, TestExecutionResult.failed(e))
         }

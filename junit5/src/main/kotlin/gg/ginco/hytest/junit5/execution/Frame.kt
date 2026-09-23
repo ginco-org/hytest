@@ -9,7 +9,9 @@ data class Frame(
     val status: String?,
     val durationMs: Long,
     val error: String?,
-    val message: String?
+    val message: String?,
+    val exitCode: Int? = null,
+    val failedCount: Int? = null
 ) {
     fun testKey(): String = "$className#$method"
 
@@ -29,7 +31,11 @@ data class Frame(
                 status = map["status"]?.toString(),
                 durationMs = (map["durationMs"] as? Number)?.toLong() ?: 0L,
                 error = map["error"]?.toString(),
-                message = map["message"]?.toString()
+                message = map["message"]?.toString(),
+                // run_finished verdict fields — the only trustworthy account of
+                // failures on the server side, used to cross-check the frames.
+                exitCode = (map["exitCode"] as? Number)?.toInt(),
+                failedCount = (map["failed"] as? Number)?.toInt()
             )
         }
     }
