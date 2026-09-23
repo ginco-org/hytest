@@ -143,6 +143,7 @@ and fails if it throws or calls `fail(...)`. If neither happens before
 t.succeed();                              // pass now
 t.fail("not what I expected");            // fail now
 t.succeedWhen(() -> t.assertTrue(...));   // poll until the condition stops throwing
+t.assertEventually(() -> t.assertTrue(...)); // BLOCK until the condition holds, then continue
 t.runAfterDelay(20, () -> { ... });       // ~1 second later (1 tick ≈ 50ms)
 ```
 
@@ -150,6 +151,23 @@ t.runAfterDelay(20, () -> { ... });       // ~1 second later (1 tick ≈ 50ms)
 > block (e.g. wait for a join) without deadlocking the world. Use
 > `t.runOnWorld(...)` for anything that must run on the world thread. Reads like
 > `world()`, `tick()`, and `transform()` are safe from the test thread.
+
+### `succeedWhen` vs `assertEventually`
+
+They share the same throwing contract — `AssertionError` means "not yet",
+anything else fails immediately — but serve different jobs:
+
+- `succeedWhen(condition)` is for the test's **terminal** success condition. It
+  returns immediately and completes the test in the background once the
+  condition holds. Assertions placed *after* it race the condition — a
+  recurring trap.
+- `assertEventually(timeoutSeconds = 10, condition)` **blocks** the test body
+  (~50ms poll loop) until the condition holds, then returns, so code after it
+  runs only once the awaited state is true. It never touches the test's
+  verdict, so it composes freely with a later `succeedWhen(...)`/`succeed()`.
+
+On timeout it throws the last `AssertionError` wrapped as
+`"condition not met within Ns: <message>"`.
 
 ## Simulated players
 
@@ -180,7 +198,42 @@ void simulatedPlayerJoins(HytaleTestHelper t) {
 | `uuid()` / `name()` | Identity |
 | `transform()` | Current `Transform` (position/rotation) |
 | `runCommand(String)` | Execute a command as the player (leading `/` optional; root lookup is case-insensitive) |
-| `spawn(World, String)` | Lower-level construction for advanced cases |
+| `disconnect()` | Remove the player from the universe; the handle becomes **stale** (removal settles asynchronously, bounded ~5s server-side) |
+| `reconnect()` | Rejoin the same world with the same uuid/name on a fresh connection; completes with a **new** handle |
+| `spawn(World, String)` / `spawn(World, String, UUID)` | Lower-level construction for advanced cases (fixed uuid for reconnect flows) |
+
+### Disconnect & reconnect
+
+Spawn with a fixed uuid to test disconnect/rejoin flows:
+
+```java
+@HytaleTest(timeoutSeconds = 60)
+void rejoinsWithSameIdentity(HytaleTestHelper t) {
+    UUID aliceId = UUID.randomUUID();
+    SimulatedPlayer alice = t.spawnSimulatedPlayer("Alice", aliceId);
+
+    alice.disconnect();
+    t.assertEventually(() -> t.assertPlayerCount(0)); // removal settles a tick later
+
+    SimulatedPlayer aliceAgain = alice.reconnect().join();
+    t.assertEquals(aliceId, aliceAgain.getUuid(), "same identity, fresh handle");
+    t.succeed();
+}
+```
+
+Behavior, pinned against server 0.6.8:
+
+- **Reconnect while still connected fails fast** with `IllegalStateException`
+  ("player is still connected — call disconnect() first"). There is no implicit
+  disconnect: a live session at reconnect time is almost always a test bug.
+- **`disconnect()` removal is asynchronous** — the uuid stays registered until
+  the world store finishes cleanup (bounded ~5s by the server), and
+  `Universe.addPlayer` *rejects* a duplicate uuid during that window (it
+  completes with `null`, it does not throw). `reconnect()` therefore waits out
+  the old registration itself (up to 10s), so `disconnect(); reconnect().join()`
+  works without any manual polling in between.
+- `reconnect()` fires `PlayerConnectEvent` again and routes the player into the
+  **same world**, exactly like a first join; the old handle stays stale.
 
 ### `runCommand` failure contract
 
@@ -226,9 +279,10 @@ hytest { showServerLogs = true }
 | `tick()` | Current world tick counter |
 | `succeed()` / `fail(msg)` / `fail(throwable)` | Complete the test |
 | `succeedWhen(Runnable)` | Poll until `condition` stops throwing, then succeed |
+| `assertEventually(timeoutSeconds = 10, condition)` | **Block** until `condition` stops throwing, then continue the test |
 | `runAfterDelay(ticks, action)` | Run `action` after approximately `ticks` ticks |
-| `assertTrue` / `assertFalse` / `assertEquals` / `assertNotNull` | Throwing assertions (usable inside `succeedWhen`) |
-| `spawnSimulatedPlayer()` / `spawnSimulatedPlayer(name)` | Inject a simulated player |
+| `assertTrue` / `assertFalse` / `assertEquals` / `assertNotNull` | Throwing assertions (usable inside `succeedWhen`/`assertEventually`) |
+| `spawnSimulatedPlayer()` / `spawnSimulatedPlayer(name)` / `spawnSimulatedPlayer(name, uuid)` | Inject a simulated player (fixed uuid for reconnect flows) |
 | `assertPlayerCount(expected)` | Assert the test world holds `expected` players |
 | `runOnWorld(action)` | Run `action` on the world thread and block until done |
 
