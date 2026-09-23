@@ -50,6 +50,18 @@ jobs:
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v4
 
+      # Rotation chain: restore the LATEST cached token (keyed by run id so
+      # every run saves a fresh entry; restore-keys falls back to the newest
+      # previous one). Without this, a run that refreshes its access token
+      # would orphan the secret's refresh token and break every later run.
+      - name: Restore Hytale token
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/hygradle/token.json
+          key: hytale-downloader-token-${{ github.run_id }}
+          restore-keys: |
+            hytale-downloader-token-
+
       # The `secrets` context is not available in step/job `if:` conditions,
       # so the standard workaround is to mirror the secret into an env var of
       # a sentinel step and gate the real steps on that step's output. The job
