@@ -4,7 +4,8 @@
 # `integration` boots a real Hytale server and runs the example suite, which
 # requires downloading the server + Assets from maven.hytale.com through
 # hygradle's provisionServer, authenticated by a cached `auth:server` token
-# that GameSession.kt reads from ~/.local/share/hygradle/token-server.json.
+# that HytaleAuth refreshes in ~/.local/share/hygradle/token.json (downloader
+# scope) — session tokens are optional; see GameSession.kt.
 # That token is a repository secret (HYTALE_TOKEN_JSON), so the job only does
 # real work when the secret is present — forks and PRs from forks stay green.
 name: CI
@@ -66,17 +67,23 @@ jobs:
             echo "::notice::HYTALE_TOKEN_JSON is not set — skipping the server integration suite."
           fi
 
-      # Exactly the path and JSON shape GameSession.kt expects: it regex-reads
-      # "access_token" and "expires_at" from this file. Written with printf so
-      # the secret lands in the file byte-for-byte without a trailing newline
-      # added by echo.
-      - name: Install hygradle server token
+      # The DOWNLOADER token (token.json, OAuth client "hytale-downloader")
+      # is what the integration job's hard requirement — provisionServer —
+      # authenticates with to fetch the server + Assets. Expired access
+      # tokens auto-refresh from its refresh_token
+      # (HytaleAuth.getAccessToken), so the secret only needs manual renewal
+      # if the refresh token itself is rejected. The SESSION token
+      # (token-server.json) is optional: GameSession fail-softs and the
+      # server runs without it — every local run to date has been
+      # session-tokenless and green. Same printf shape GameSession documents,
+      # in case a server-scoped token is added later.
+      - name: Install hygradle downloader token
         if: steps.token.outputs.present == 'true'
         env:
           HYTALE_TOKEN_JSON: ${{ secrets.HYTALE_TOKEN_JSON }}
         run: |
           mkdir -p "$HOME/.local/share/hygradle"
-          printf '%s' "$HYTALE_TOKEN_JSON" > "$HOME/.local/share/hygradle/token-server.json"
+          printf '%s' "$HYTALE_TOKEN_JSON" > "$HOME/.local/share/hygradle/token.json"
 
       - name: Example integration suite
         if: steps.token.outputs.present == 'true'
