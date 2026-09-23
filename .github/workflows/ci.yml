@@ -61,6 +61,18 @@ jobs:
           key: hytale-downloader-token-${{ github.run_id }}
           restore-keys: |
             hytale-downloader-token-
+      # 3.4GB of server files (jar + Assets.zip) — cached by server version so
+      # the authenticated download only happens on a version bump or cold
+      # cache. Assets.zip is a hard requirement of the server itself
+      # (missingAssets shutdown without it); it cannot be trimmed away.
+      - name: Restore Hytale server files
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches/hygradle/server
+          key: hytale-server-0.6.8-${{ github.run_id }}
+          restore-keys: |
+            hytale-server-0.6.8-
+            hytale-server-
 
       # The `secrets` context is not available in step/job `if:` conditions,
       # so the standard workaround is to mirror the secret into an env var of

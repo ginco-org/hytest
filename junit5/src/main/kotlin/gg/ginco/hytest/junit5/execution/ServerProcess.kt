@@ -276,11 +276,10 @@ object ServerProcess {
             add("-Dhytest.run=true")
             add("-jar"); add(config.serverJar.toString())
             if (config.assets != null) { add("--assets"); add(config.assets.toString()) }
-            val session = GameSession.resolve()
-            if (session != null) {
-                add("--session-token"); add(session.sessionToken)
-                add("--identity-token"); add(session.identityToken)
-            }
+            // No session tokens: every supported flow runs the server
+            // unauthenticated (GameSession was removed — it was fail-soft and
+            // never populated in practice; reintroduce deliberately if a test
+            // ever needs account-bound server behaviour).
             add("--disable-sentry")
             add("--disable-file-watcher")
         }
