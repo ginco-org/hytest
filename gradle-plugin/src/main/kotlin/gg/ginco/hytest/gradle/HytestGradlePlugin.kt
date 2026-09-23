@@ -193,6 +193,7 @@ class HytestGradlePlugin : Plugin<Project> {
             test.systemProperty("hytest.serverDir", serverDir.absolutePath)
             test.systemProperty("hytest.jvmArgs", ext.jvmArgs.get().joinToString(" "))
             test.systemProperty("hytest.timeoutSeconds", ext.timeoutSeconds.get().toString())
+            test.systemProperty("hytest.firstFrameGraceSeconds", ext.firstFrameGraceSeconds.get().toString())
             test.systemProperty("hytest.showServerLogs", ext.showServerLogs.get().toString())
             if (ext.javaExecutable.isPresent) {
                 test.systemProperty("hytest.java", ext.javaExecutable.get())

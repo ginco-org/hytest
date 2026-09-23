@@ -255,6 +255,7 @@ are only for pointing hytest at a server outside that directory.
 | `javaExecutable` | `String` | build JDK | Java used to launch the server |
 | `jvmArgs` | `List<String>` | `-Xmx4G -Xms1G` | JVM args for the server process |
 | `timeoutSeconds` | `Long` | `300` | Per-run server budget |
+| `firstFrameGraceSeconds` | `Long` | `90` | Fail fast when the test plugin emits nothing within this window of server start (rejected jar); distinct from `timeoutSeconds`, which keeps covering mid-run stalls |
 | `showServerLogs` | `Boolean` | `false` | Forward server stdout/stderr to the build console |
 
 Only when using a server that hygradle did not provision:

@@ -17,6 +17,11 @@ object ServerProcess {
     private val EOF = Frame("eof", null, null, null, 0L, null, null)
     private const val OUTPUT_RING_LINES = 300
 
+    // How long a server that dispatch no longer waits for may take to exit on
+    // its own before it is destroyed. The healthy path (post-run_finished
+    // shutdown) fits comfortably; only a hang pays the full grace.
+    private const val SHUTDOWN_GRACE_MILLIS = 15_000L
+
     class MethodDescriptorRef(
         val descriptor: MethodDescriptor,
         val classRef: ClassDescriptorRef
@@ -46,9 +51,15 @@ object ServerProcess {
 
         val deadline = System.currentTimeMillis() + config.timeoutMillis
         try {
-            return dispatch(methods, listener, queue, serverOutput, deadline, config.timeoutMillis)
+            return dispatch(methods, listener, queue, serverOutput, deadline,
+                config.timeoutMillis, config.firstFrameGraceMillis)
         } finally {
-            ensureTerminated(process, deadline)
+            // Kill deadline measured from when dispatch gave up, not from the
+            // run budget: a first-frame abort must destroy a still-idling
+            // (never-loaded) server within seconds instead of riding the rest
+            // of the 300s budget.
+            ensureTerminated(process,
+                minOf(deadline, System.currentTimeMillis() + SHUTDOWN_GRACE_MILLIS))
         }
     }
 
@@ -61,16 +72,21 @@ object ServerProcess {
     class RunOutcome(
         private val failedTests: Int,
         private val unfinishedTests: Int,
-        private val endSummary: String?
+        private val endSummary: String?,
+        // Leads the root message when set: counts are downstream symptoms of
+        // a server that never loaded the test jar, and the diagnosis is what
+        // the user acts on.
+        private val pluginNeverResponded: Boolean = false
     ) {
         fun rootResult(): TestExecutionResult {
-            if (failedTests == 0 && unfinishedTests == 0 && endSummary == null) {
+            if (failedTests == 0 && unfinishedTests == 0 && endSummary == null && !pluginNeverResponded) {
                 return TestExecutionResult.successful()
             }
-            val parts = ArrayList<String>(3)
+            val parts = ArrayList<String>(4)
+            if (pluginNeverResponded) parts.add(endSummary ?: "the test plugin never responded")
             if (failedTests > 0) parts.add("$failedTests test(s) failed")
             if (unfinishedTests > 0) parts.add("$unfinishedTests discovered test(s) never finished")
-            endSummary?.let { parts.add(it) }
+            if (endSummary != null && !pluginNeverResponded) parts.add(endSummary)
             return TestExecutionResult.failed(
                 AssertionError("Hytale test run failed: ${parts.joinToString("; ")}"))
         }
@@ -82,7 +98,8 @@ object ServerProcess {
         queue: LinkedBlockingQueue<Frame>,
         serverOutput: ArrayDeque<String>,
         deadline: Long,
-        runBudgetMillis: Long
+        runBudgetMillis: Long,
+        firstFrameGraceMillis: Long
     ): RunOutcome {
         val startedKeys = linkedSetOf<String>()
         val finishedKeys = linkedSetOf<String>()
@@ -95,10 +112,23 @@ object ServerProcess {
         val unknownFailures = linkedSetOf<String>()
         var runExitCode: Int? = null
         var runReportedFailures: Int? = null
+        // A healthy plugin announces itself within seconds of the server
+        // finishing boot; silence past the grace window means the jar was
+        // rejected (bad manifest, load error) and waiting out the whole run
+        // budget buys nothing. Strictly a first-frame check — mid-run stalls
+        // keep the existing budget semantics.
+        val firstFrameDeadline =
+            minOf(deadline, deadline - runBudgetMillis + firstFrameGraceMillis)
+        var sawAnyFrame = false
+        var pluginNeverResponded = false
 
         while (true) {
-            val remaining = deadline - System.currentTimeMillis()
-            if (remaining <= 0) break
+            val waitLimit = if (sawAnyFrame) deadline else firstFrameDeadline
+            val remaining = waitLimit - System.currentTimeMillis()
+            if (remaining <= 0) {
+                if (!sawAnyFrame) pluginNeverResponded = true
+                break
+            }
             val frame = try {
                 queue.poll(remaining, TimeUnit.MILLISECONDS)
             } catch (e: InterruptedException) {
@@ -106,6 +136,7 @@ object ServerProcess {
             }
             if (frame == null) continue
             if (frame === EOF) { serverDied = true; break }
+            sawAnyFrame = true
             when (frame.type) {
                 "test_started" -> startTest(frame, methods, listener, startedKeys, startedClasses)
                 "test_finished" -> {
@@ -139,7 +170,11 @@ object ServerProcess {
         // A discovered test with no reported verdict is a FAILURE, not a skip:
         // Gradle renders aborted/skipped as green, and "the plugin never loaded"
         // must never look like a passing suite.
+        val pluginSilentSummary = "no response from the test plugin within " +
+            "${firstFrameGraceMillis / 1000}s of server start — the test jar was likely rejected; " +
+            "re-run with showServerLogs"
         val unfinishedReason = when {
+            pluginNeverResponded -> pluginSilentSummary
             serverDied -> "server exited before this test ran — " +
                 "the test plugin may have failed to load; check showServerLogs"
             !runFinished -> "run budget of ${runBudgetMillis / 1000}s expired before this test ran — " +
@@ -171,6 +206,7 @@ object ServerProcess {
         } else null
 
         val endSummary = exitMismatch ?: when {
+            pluginNeverResponded -> pluginSilentSummary
             unfinished > 0 && serverDied ->
                 "server exited before $unfinished test(s) ran — " +
                 "the test plugin may have failed to load; check showServerLogs"
@@ -181,7 +217,7 @@ object ServerProcess {
             else -> null
         }
 
-        return RunOutcome(testFailures, unfinished, endSummary)
+        return RunOutcome(testFailures, unfinished, endSummary, pluginNeverResponded)
     }
 
     private fun startTestMethod(
@@ -313,6 +349,7 @@ object ServerProcess {
         val java: String,
         val jvmArgs: List<String>,
         val timeoutMillis: Long,
+        val firstFrameGraceMillis: Long,
         val showServerLogs: Boolean
     ) {
         companion object {
@@ -333,9 +370,13 @@ object ServerProcess {
                     Path.of(System.getProperty("java.home"), "bin", "java").toString())
                 val jvmArgs = splitArgs(System.getProperty("hytest.jvmArgs", "-Xmx4G -Xms1G"))
                 val timeoutSeconds = System.getProperty("hytest.timeoutSeconds", "300").toLong()
+                // Generous because the server boots a full JVM (assets, world
+                // machinery) before the plugin loads; only true silence is fatal.
+                val firstFrameGraceSeconds =
+                    System.getProperty("hytest.firstFrameGraceSeconds", "90").toLong()
                 val showServerLogs = System.getProperty("hytest.showServerLogs", "false").toBoolean()
                 return Config(serverJar, assets, pluginJar, workDir, java, jvmArgs,
-                    timeoutSeconds * 1000L, showServerLogs)
+                    timeoutSeconds * 1000L, firstFrameGraceSeconds * 1000L, showServerLogs)
             }
 
             private fun requirePath(key: String): Path {
