@@ -15,6 +15,7 @@ import com.hypixel.hytale.server.core.universe.PlayerRef
 import com.hypixel.hytale.server.core.universe.Universe
 import com.hypixel.hytale.server.core.universe.world.World
 import gg.ginco.hytest.runtime.HytestPlugin
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.*
 
@@ -88,8 +89,26 @@ class SimulatedPlayer private constructor(
         Universe.get().removePlayer(playerRef)
     }
 
+    /**
+     * Execute a command as the player (leading `/` optional).
+     *
+     * Fails with [IllegalStateException] when the root command does not
+     * resolve — the server would otherwise send the player a "not found"
+     * message and complete normally, silently turning a typo (`minigame creat`)
+     * into a passing test that asserted nothing. Outcomes the command itself
+     * produces (permission denial, rejected arguments) still complete
+     * normally; assert on them via [receivedMessages].
+     */
     fun runCommand(command: String): CompletableFuture<Void> {
         val stripped = if (command.startsWith("/")) command.substring(1) else command
+        // Root extraction mirrors CommandManager's own dispatch (text before
+        // the first space, lowercased) so we reject exactly what it would
+        // silently no-op on — general whitespace trimming would diverge.
+        val root = stripped.substringBefore(' ').lowercase(Locale.ROOT)
+        if (CommandManager.get().resolveCommand(root) == null) {
+            return CompletableFuture.failedFuture(
+                IllegalStateException("no command named '$root' (input: '$command')"))
+        }
         return CommandManager.get().handleCommand(playerRef, stripped)
             .exceptionally { throw CompletionException("command failed: $command", it) }
     }

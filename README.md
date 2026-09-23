@@ -179,8 +179,23 @@ void simulatedPlayerJoins(HytaleTestHelper t) {
 | `ref()` | The underlying `PlayerRef` (a `CommandSender`) |
 | `uuid()` / `name()` | Identity |
 | `transform()` | Current `Transform` (position/rotation) |
-| `runCommand(String)` | Execute a command as the player (leading `/` optional) |
+| `runCommand(String)` | Execute a command as the player (leading `/` optional; root lookup is case-insensitive) |
 | `spawn(World, String)` | Lower-level construction for advanced cases |
+
+### `runCommand` failure contract
+
+A typo'd root command (`minigame creat`, `foo bar`) **fails the returned
+future** with an `IllegalStateException` (`no command named '...' (input: '...')`)
+instead of silently doing nothing — the server's own dispatcher would just send
+the player a "command not found" message and complete normally, which turned
+misspelled commands into passing tests that asserted nothing.
+
+Outcomes the command itself produces at runtime still complete **normally**, so
+tests can assert on them via `receivedMessages()`: permission denials and
+rejected arguments surface as messages to the player, not as future failures.
+Note that rejected-argument outcomes are not distinguishable from successful
+execution at the future level — if you need to pin argument handling, assert on
+the captured messages (e.g. `t.assertTrue(alice.sawMessage("..."), ...)`).
 
 ## Running tests
 
