@@ -110,6 +110,18 @@ class HytestGradlePlugin : Plugin<Project> {
             jar.from(project.provider {
                 runtimePlugin.files.filter { it.name.endsWith(".jar") }.map { project.zipTree(it) } as Iterable<*>
             })
+            // The plugin under test's runtime dependencies (JSON libs, codec
+            // runtimes, stdlib, ...) must ship in the merged jar: on the
+            // server only this jar's classloader exists. Mirrors hygradle's
+            // bundleDependencies behaviour for normal plugin jars.
+            val runtimeClasspath = project.configurations.getByName(
+                main.runtimeClasspathConfigurationName)
+            jar.dependsOn(runtimeClasspath)
+            jar.from(project.provider {
+                runtimeClasspath.files
+                    .filter { it.name.endsWith(".jar") && !it.name.startsWith("hytest") }
+                    .map { project.zipTree(it) } as Iterable<*>
+            })
             jar.from(hytaleTest.output)
             jar.from(main.output.classesDirs)
         }
