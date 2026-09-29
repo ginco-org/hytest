@@ -360,6 +360,14 @@ nix develop          # JDK 25 on PATH, JAVA_HOME set
 ./gradlew -p example hytaleTest   # end-to-end smoke test
 ```
 
+> **Run the suite locally when you can.** On CI the integration job takes
+> ~30 minutes (2-core runner + the server's world-disposal pipeline costs
+> ~30s per per-test world); locally it finishes in well under a minute. CI
+> cancels superseded runs per branch, but a pushed commit still burns a
+> 30-minute runner before it reports — so iterate locally, let CI confirm.
+> Use `-PhytestLogs` on the example suite to see the full server + per-test
+> timeline.
+
 ## License
 
 [MIT](LICENSE).
