@@ -2,6 +2,7 @@ package gg.ginco.hytest.runtime.api
 
 import com.hypixel.hytale.server.core.HytaleServer
 import com.hypixel.hytale.server.core.universe.world.World
+import gg.ginco.hytest.runtime.HytestPlugin
 import gg.ginco.hytest.runtime.player.SimulatedPlayer
 import java.util.UUID
 import java.util.concurrent.*
@@ -190,6 +191,27 @@ class HytaleTestHelper(val world: World) {
     fun failure(): Throwable? = failure
 
     fun doneFuture(): CompletableFuture<Void> = done
+
+    /**
+     * Registers a listener for [eventClass] on the server's event bus and
+     * returns the list it appends fired events to. The registration is
+     * unregistered automatically when the test finishes — tests assert on
+     * the returned list (thread-safe; events arrive on the world thread).
+     *
+     * Works for any event type the server or plugins dispatch, which makes
+     * it the harness's event-capture primitive for consumers that expose
+     * their own events.
+     */
+    fun <E : Any> captureEvents(eventClass: Class<E>): MutableList<E> {
+        val list = java.util.concurrent.CopyOnWriteArrayList<E>()
+        val registration = gg.ginco.hytest.runtime.HytestPlugin.EVENTS!!
+            .register(eventClass) { event -> list.add(event) }!!
+        done.whenComplete { _, _ -> runCatching { registration.unregister() } }
+        return list
+    }
+
+    /** [captureEvents] for Kotlin callers using a reified type. */
+    inline fun <reified E : Any> captureEvents(): MutableList<E> = captureEvents(E::class.java)
 
     private companion object {
         /** Default budget for [assertEventually], in seconds. */
