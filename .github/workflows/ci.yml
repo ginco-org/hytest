@@ -125,4 +125,4 @@ jobs:
 
       - name: Example integration suite
         if: steps.token.outputs.present == 'true'
-        run: ./gradlew -p example hytaleTest
+        run: ./gradlew -p example hytaleTest -PhytestLogs
