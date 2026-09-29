@@ -229,6 +229,12 @@ class HytestGradlePlugin : Plugin<Project> {
             }
             test.systemProperty("hytest.pluginJar",
                 mergedJar.get().archiveFile.get().asFile.absolutePath)
+            // showServerLogs forwards server output to the TEST JVM's stdout —
+            // which Gradle then captures and hides unless told otherwise. With
+            // both on, CI logs contain the full server + per-test timeline.
+            test.testLogging { logging ->
+                logging.showStandardStreams = ext.showServerLogs.get()
+            }
         }
     }
 
