@@ -20,4 +20,5 @@ hytale {
 hytest {
     timeoutSeconds = 900
     firstFrameGraceSeconds = 180
+    showServerLogs = providers.gradleProperty("hytestLogs").isPresent
 }
