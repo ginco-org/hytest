@@ -147,9 +147,15 @@ object TestRunner {
 
     private fun report(desc: TestDescriptor, start: Long, passed: Boolean, error: Throwable?) {
         pendingVerdicts.remove(desc)
+        val duration = System.currentTimeMillis() - start
+        // Human-readable progress on the server's own stdout: forwarded by
+        // showServerLogs, so slow CI runs can be attributed per test.
+        println("[hytest] ${desc.testClass.simpleName}.${desc.method.name} " +
+            (if (passed) "PASSED" else "FAILED") + " in ${duration}ms" +
+            (error?.let { " — ${it.message?.take(120)}" } ?: ""))
         ResultReporter.testFinished(
             desc.testClass.name, desc.method.name, passed,
-            System.currentTimeMillis() - start, error)
+            duration, error)
     }
 
     private fun unwrap(t: Throwable?): Throwable? =

@@ -7,6 +7,8 @@ object ResultReporter {
     const val PREFIX = "HYTEST "
 
     fun runStarted(count: Int) {
+        println("[hytest] run starting: $count discovered test(s)")
+
         emit(mapOf("type" to "run_started", "count" to count))
     }
 
