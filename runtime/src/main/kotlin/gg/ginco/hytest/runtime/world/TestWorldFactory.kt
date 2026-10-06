@@ -21,6 +21,17 @@ object TestWorldFactory {
                 resourceStorageProvider = EmptyResourceStorageProvider.INSTANCE
                 isSavingConfig = false
                 isDeleteOnRemove = false
+                // Throwaway worlds: everything a test needs lives in memory
+                // (EmptyChunkStorage + chunk-store resources). With saving on,
+                // world removal runs ChunkSavingSystems.saveChunksInWorld and
+                // blocks on its in-flight semaphore — measured ~30s per world
+                // on 2-core CI runners (68 worlds ≈ half the suite's wall
+                // time). The WorldRemoved hook checks canSaveChunks() and
+                // skips the save entirely when false; the Ticking autosave
+                // hook gates on the same flag, so ticks do less work too.
+                // (Kotlin cannot assign the private field directly — the
+                // Java-bean setter pairs with it.)
+                setCanSaveChunks(false)
             }
             Universe.get()
                 .makeWorld("hytest-${UUID.randomUUID()}", Files.createTempDirectory("hytest-world"), config)
