@@ -204,14 +204,24 @@ class HytaleTestHelper(val world: World) {
      */
     fun <E : Any> captureEvents(eventClass: Class<E>): MutableList<E> {
         val list = java.util.concurrent.CopyOnWriteArrayList<E>()
-        val registration = gg.ginco.hytest.runtime.HytestPlugin.EVENTS!!
-            .register(eventClass) { event -> list.add(event) }!!
-        done.whenComplete { _, _ -> runCatching { registration.unregister() } }
+        onEvent(eventClass) { event -> list.add(event) }
         return list
     }
 
     /** [captureEvents] for Kotlin callers using a reified type. */
     inline fun <reified E : Any> captureEvents(): MutableList<E> = captureEvents(E::class.java)
+
+    /**
+     * Registers [handler] as a listener for [eventClass] (any event type the
+     * server or plugins dispatch) and auto-unregisters it when the test
+     * finishes. The handler runs on the thread that dispatched the event —
+     * for plugin events that is usually the world thread.
+     */
+    fun <E : Any> onEvent(eventClass: Class<E>, handler: (E) -> Unit) {
+        val registration = HytestPlugin.EVENTS!!
+            .register(eventClass) { event -> handler(event) }!!
+        done.whenComplete { _, _ -> runCatching { registration.unregister() } }
+    }
 
     private companion object {
         /** Default budget for [assertEventually], in seconds. */
