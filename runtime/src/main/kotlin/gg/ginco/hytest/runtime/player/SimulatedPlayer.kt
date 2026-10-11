@@ -39,6 +39,9 @@ class SimulatedPlayer private constructor(
     /** Set by [disconnect] so [reconnect] can tell "disconnected, cleanup pending" from "never disconnected". */
     @Volatile private var disconnectRequested = false
 
+    /** clientViewRadiusChunks this identity was joined with ([reconnect] must rejoin the same way). */
+    private val viewRadius: Int get() = DEFAULT_VIEW_RADIUS_CHUNKS
+
     fun ref(): PlayerRef = playerRef
 
     fun transform(): Transform = playerRef.transform
@@ -140,7 +143,7 @@ class SimulatedPlayer private constructor(
                 "cannot reconnect '$name' ($uuid): player is still connected — call disconnect() first"))
         }
         return awaitIdentitySettled(uuid, name)
-            .thenCompose { connect(world, name, uuid) }
+            .thenCompose { connect(world, name, uuid, viewRadius) }
     }
 
     /**
@@ -172,11 +175,59 @@ class SimulatedPlayer private constructor(
         internal const val IDENTITY_SETTLE_TIMEOUT_SECONDS = 10L
 
         /**
+         * Default `clientViewRadiusChunks` passed to [Universe.addPlayer] for
+         * simulated players.
+         *
+         * The value is what the server streams to a client: the per-player
+         * `ChunkTracker` loads and keeps in flight `radius²` chunk columns
+         * around every join/teleport/rejoin and packetizes them to the
+         * connection. A simulated player has no client that renders any of
+         * it, and the in-flight backlog is exactly what world teardown's
+         * "Waiting for loading chunks..." drains against a hard ~5s budget —
+         * on slow (2-core) runners the default client radius (6) produced
+         * multi-second teardowns per player-heavy test (CI suite ≈ +3 min).
+         *
+         * **Tuning this value** (empirics from 2-core runs of a 14-test
+         * example suite, radius 6 → 1 → 0: teardown wait sum 40s → 10s → 0s,
+         * all green at every step):
+         *  - `1` (default): tracker stays live for the player's own column +
+         *    neighbours; spawns/teleports/commands/reconnect all behave
+         *    normally. Player-heavy worlds on very small runners can still
+         *    occasionally hit the teardown wait cap (2 of 14 worlds locally).
+         *  - `6` matches the stock client view radius — only worth it for
+         *    explicit chunk-streaming / packet-level assertions.
+         *  - `0` was also verified 14/14 green with zero teardown waits, but
+         *    it zeroes the player's EntityViewer (the simulated player would
+         *    see no entities), which could change the behavior of plugin
+         *    features that depend on per-client entity proximity/region
+         *    tracking. Choose it only for plainly positionless/background
+         *    tests.
+         *
+         * Message capture ([receivedMessages]) is independent of this:
+         * chat and command responses are Message packets, not the chunk
+         * stream.
+         *
+         * **When to override:** any test that needs to assert on the *chunk
+         * packet stream itself* (what columns/sections a joining client is
+         * told about) — or drives the player over long distances quickly —
+         * should spawn with a larger radius.
+         */
+        const val DEFAULT_VIEW_RADIUS_CHUNKS = 1
+
+        /**
          * Spawns a simulated player with a fresh random identity into
          * [world].
          */
         fun spawn(world: World, name: String): CompletableFuture<SimulatedPlayer> =
             spawn(world, name, UUID.randomUUID())
+
+        /**
+         * Spawns a simulated player with a fresh random identity into
+         * [world], controlling the server's chunk-stream view radius for this
+         * client (see [DEFAULT_VIEW_RADIUS_CHUNKS]).
+         */
+        fun spawn(world: World, name: String, viewRadius: Int): CompletableFuture<SimulatedPlayer> =
+            spawn(world, name, UUID.randomUUID(), viewRadius)
 
         /**
          * Spawns a simulated player with a fixed [uuid] — the identity a
@@ -185,7 +236,11 @@ class SimulatedPlayer private constructor(
          * is already registered (still connected / mid-removal).
          */
         fun spawn(world: World, name: String, uuid: UUID): CompletableFuture<SimulatedPlayer> =
-            connect(world, name, uuid)
+            spawn(world, name, uuid, DEFAULT_VIEW_RADIUS_CHUNKS)
+
+        /** See the [uuid] overload; [viewRadius] controls this connection's chunk stream (see [DEFAULT_VIEW_RADIUS_CHUNKS]). */
+        fun spawn(world: World, name: String, uuid: UUID, viewRadius: Int): CompletableFuture<SimulatedPlayer> =
+            connect(world, name, uuid, viewRadius)
 
         /**
          * Shared join flow behind [spawn] and [reconnect]: registers a
@@ -199,7 +254,7 @@ class SimulatedPlayer private constructor(
          * channel, and completes with `null`. We translate that `null` into
          * an explicit failure so callers see a cause, not a silent null.
          */
-        private fun connect(world: World, name: String, uuid: UUID): CompletableFuture<SimulatedPlayer> {
+        private fun connect(world: World, name: String, uuid: UUID, viewRadius: Int): CompletableFuture<SimulatedPlayer> {
             val channel = FakeChannelConnection()
 
             val routing: EventRegistration<*, *>? = HytestPlugin.EVENTS!!.register(PlayerConnectEvent::class.java) { event ->
@@ -207,7 +262,12 @@ class SimulatedPlayer private constructor(
             }
 
             val auth = PlayerAuthentication(uuid, name)
-            val join = Universe.get().addPlayer(channel, "en", ProtocolVersion(0), auth, 6)
+            // `viewRadius` deliberately handed in by the spawn call:
+            // DEFAULT_VIEW_RADIUS_CHUNKS (1) keeps the per-join ChunkTracker
+            // backlog tiny — the in-flight column loads that world teardown
+            // otherwise waits out. Override per spawn call when a test needs
+            // packet-level chunk assertions or long-range streaming.
+            val join = Universe.get().addPlayer(channel, "en", ProtocolVersion(0), auth, viewRadius)
 
             val readyCompleter = HytaleServer.SCHEDULED_EXECUTOR.scheduleAtFixedRate({
                 channel.capturedHandler?.let { h ->

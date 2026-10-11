@@ -5,6 +5,7 @@ import com.hypixel.hytale.server.core.universe.world.World
 import com.hypixel.hytale.server.core.universe.world.WorldConfig
 import com.hypixel.hytale.server.core.universe.world.storage.provider.EmptyChunkStorageProvider
 import com.hypixel.hytale.server.core.universe.world.storage.resources.EmptyResourceStorageProvider
+import com.hypixel.hytale.server.core.universe.world.worldmap.provider.DisabledWorldMapProvider
 import com.hypixel.hytale.server.core.universe.world.worldgen.provider.VoidWorldGenProvider
 import java.nio.file.Files
 import java.util.UUID
@@ -32,6 +33,27 @@ object TestWorldFactory {
                 // (Kotlin cannot assign the private field directly — the
                 // Java-bean setter pairs with it.)
                 setCanSaveChunks(false)
+                // Simulated players have no client, so nothing ever reads the
+                // world map — but the default map provider drives
+                // "WorldMapTracker" chunk scans at world init and on every
+                // join. That load backlog is what world teardown then drains:
+                // removing a world with chunk loads still in flight blocks in
+                // the server's "Waiting for loading chunks..." phase against a
+                // fixed ~5s cap (measured on a 2-core CI suite: 37 of 77 world
+                // teardowns + several in-body instance-world stops ≈ 3.5 min
+                // of pure waiting). DisabledWorldMapProvider removes those
+                // requests at the source.
+                worldMapProvider = DisabledWorldMapProvider()
+                // Void test worlds read no terrain, and the default pregenerate
+                // region is ±512 blocks (9×9 = 81 chunks queued per world).
+                // WorldPregenerateSystem skips itself entirely when the region
+                // is null — that leaves teardown's "Waiting for loading
+                // chunks..." queue empty instead of waiting out its 5s budget.
+                // Deliberately NOT touching chunkConfig.keepLoadedRegion: an
+                // empty keep-loaded region breaks player placement (join then
+                // stalls forever; bisected locally), so the server's default
+                // stays in place.
+                getChunkConfig().setPregenerateRegion(null)
             }
             Universe.get()
                 .makeWorld("hytest-${UUID.randomUUID()}", Files.createTempDirectory("hytest-world"), config)

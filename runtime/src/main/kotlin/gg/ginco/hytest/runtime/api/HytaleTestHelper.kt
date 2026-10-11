@@ -124,9 +124,19 @@ class HytaleTestHelper(val world: World) {
      * reconnect flows: `spawnSimulatedPlayer("Alice", uuid)` produces exactly
      * the same identity a later [SimulatedPlayer.reconnect] restores.
      */
-    fun spawnSimulatedPlayer(name: String, uuid: UUID): SimulatedPlayer {
+    fun spawnSimulatedPlayer(name: String, uuid: UUID): SimulatedPlayer =
+        spawnSimulatedPlayer(name, uuid, SimulatedPlayer.DEFAULT_VIEW_RADIUS_CHUNKS)
+
+    /**
+     * [spawnSimulatedPlayer], controlling the server's chunk-stream view
+     * radius for this simulated client (see
+     * [SimulatedPlayer.DEFAULT_VIEW_RADIUS_CHUNKS]). Only raise this when the
+     * test needs the chunk packet stream — normal gameplay/position/command
+     * assertions work at the fast default.
+     */
+    fun spawnSimulatedPlayer(name: String, uuid: UUID, viewRadius: Int): SimulatedPlayer {
         return try {
-            SimulatedPlayer.spawn(world, name, uuid).orTimeout(30, TimeUnit.SECONDS).join()
+            SimulatedPlayer.spawn(world, name, uuid, viewRadius).orTimeout(30, TimeUnit.SECONDS).join()
         } catch (e: CompletionException) {
             val cause = e.cause ?: e
             throw if (cause is RuntimeException) cause else e
@@ -135,6 +145,10 @@ class HytaleTestHelper(val world: World) {
 
     fun spawnSimulatedPlayer(name: String): SimulatedPlayer =
         spawnSimulatedPlayer(name, UUID.randomUUID())
+
+    /** [spawnSimulatedPlayer] with a default identity; [viewRadius] see the fixed-identity overload. */
+    fun spawnSimulatedPlayer(name: String, viewRadius: Int): SimulatedPlayer =
+        spawnSimulatedPlayer(name, UUID.randomUUID(), viewRadius)
 
     fun assertPlayerCount(expected: Int) {
         @Suppress("DEPRECATION")
