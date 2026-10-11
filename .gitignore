@@ -6,3 +6,10 @@ run/
 out/
 .direnv/
 bin/
+Common/
+Cosmetics/
+Server/
+run/
+bundledDefaults/
+manifest.json
+CommonAssetsIndex.hashes
