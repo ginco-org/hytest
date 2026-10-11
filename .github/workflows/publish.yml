@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -22,6 +23,19 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Check signing credentials are visible (non-leaking)
+        run: |
+          if [ -z "$ORG_GRADLE_PROJECT_signingInMemoryKey" ]; then
+            echo "signingInMemoryKey: MISSING (org secret not accessible to this repo)"
+          else
+            echo "signingInMemoryKey: present, $(printf %s "$ORG_GRADLE_PROJECT_signingInMemoryKey" | wc -l) lines, starts with: $(printf %s "$ORG_GRADLE_PROJECT_signingInMemoryKey" | head -c 36)"
+          fi
+          if [ -z "$ORG_GRADLE_PROJECT_mavenCentralUsername" ]; then
+            echo "mavenCentralUsername: MISSING"
+          else
+            echo "mavenCentralUsername: present"
+          fi
 
       - name: Publish
         run: ./gradlew publishAllPublicationsToMavenCentralRepository
