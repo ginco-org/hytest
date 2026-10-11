@@ -42,8 +42,8 @@ subprojects {
             url = "https://github.com/ginco-org/hytest"
             licenses {
                 license {
-                    name = "MIT"
-                    url = "https://github.com/ginco-org/hytest/blob/main/LICENSE"
+                    name = "Apache-2.0"
+                    url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
                 }
             }
             developers {
