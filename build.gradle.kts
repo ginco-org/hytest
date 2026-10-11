@@ -9,7 +9,7 @@ plugins {
 
 allprojects {
     group = "gg.ginco.hytest"
-    version = "0.1.1"
+    version = "0.1.2"
 }
 
 subprojects {

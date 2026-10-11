@@ -32,7 +32,7 @@ abstract class HytestExtension @Inject constructor(project: Project) {
         // HytestGradlePluginTest.versionConventionMatchesProjectVersion fails
         // the build when they drift. This default serves consumers that don't
         // set `hytest { version }` at all (the common hygradle case).
-        version.convention("0.1.1")
+        version.convention("0.1.2")
         serverDir.convention(project.layout.projectDirectory.dir("run"))
         timeoutSeconds.convention(300L)
         // Server boot is not instant (full JVM + assets), so the first-frame
