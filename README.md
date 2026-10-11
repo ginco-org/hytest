@@ -90,7 +90,7 @@ pluginManagement {
 ```kotlin
 plugins {
     id("gg.ginco.hygradle") version "0.5.0"   // plugin build setup + server provisioning
-    id("gg.ginco.hytest")   version "0.1.0"   // this framework
+    id("gg.ginco.hytest")   version "0.1.1"   // this framework
 }
 
 hytale {
@@ -302,7 +302,7 @@ are only for pointing hytest at a server outside that directory.
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `version` | `String` | `0.1.0` | Hytest artifact version to depend on |
+| `version` | `String` | `0.1.1` | Hytest artifact version to depend on (`runtime` + `junit5`); set it to pin a different release than the plugin's default |
 | `serverDir` | `Directory` | hygradle's `run/` | Where to find `HytaleServer.jar` + `Assets.zip` |
 | `serverJar` | `String` | `<serverDir>/HytaleServer.jar` | Explicit server jar (overrides `serverDir`; bypasses provisioning) |
 | `assets` | `String` | `<serverDir>/Assets.zip` | Explicit assets dir or zip (overrides `serverDir`; bypasses provisioning) |

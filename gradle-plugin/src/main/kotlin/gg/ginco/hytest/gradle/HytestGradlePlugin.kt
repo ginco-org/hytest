@@ -30,21 +30,32 @@ class HytestGradlePlugin : Plugin<Project> {
         wireSourceSetToMain(project, hytaleTest, main)
         wireServerApi(project, hytaleTest)
 
-        val hytestVersion = ext.version.get()
         val runtimePlugin = project.configurations.create("hytestRuntimePlugin") { config ->
             config.setCanBeConsumed(false)
             config.setCanBeResolved(true)
             config.description = "hytest-runtime jar merged into the deployed plugin"
         }
 
-        val junitPlatform = resolveJunitPlatformVersion(project)
-        project.dependencies.add(runtimePlugin.name, "gg.ginco.hytest:runtime:$hytestVersion")
-        project.dependencies.add(hytaleTest.implementationConfigurationName,
-            "gg.ginco.hytest:runtime:$hytestVersion")
         project.dependencies.add(hytaleTest.runtimeOnlyConfigurationName,
-            "gg.ginco.hytest:junit5:$hytestVersion")
-        project.dependencies.add(hytaleTest.runtimeOnlyConfigurationName,
-            "org.junit.platform:junit-platform-launcher:$junitPlatform")
+            "org.junit.platform:junit-platform-launcher:${resolveJunitPlatformVersion(project)}")
+
+        // The three hytest coordinates are declared after project evaluation:
+        // for `plugins { }` consumers apply() runs *before* the build-script
+        // body, so reading ext.version here would bake the convention default
+        // into the notation strings — a later `hytest { version = … }`
+        // assignment would then never reach artifact resolution (only the
+        // merged jar's manifest, which reads the live property). Moving the
+        // declarations into afterEvaluate makes the extension the single
+        // source of truth for both. Safe spot: nothing resolves these
+        // configurations before the task graph is requested.
+        project.afterEvaluate {
+            val hytestVersion = ext.version.get()
+            project.dependencies.add(runtimePlugin.name, "gg.ginco.hytest:runtime:$hytestVersion")
+            project.dependencies.add(hytaleTest.implementationConfigurationName,
+                "gg.ginco.hytest:runtime:$hytestVersion")
+            project.dependencies.add(hytaleTest.runtimeOnlyConfigurationName,
+                "gg.ginco.hytest:junit5:$hytestVersion")
+        }
 
         val manifestTask = registerHytestManifestTask(project)
         val mergedJar = registerMergedJarTask(project, runtimePlugin, hytaleTest, main, manifestTask)
