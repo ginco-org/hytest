@@ -218,6 +218,8 @@ class HytestGradlePlugin : Plugin<Project> {
             test.systemProperty("hytest.timeoutSeconds", ext.timeoutSeconds.get().toString())
             test.systemProperty("hytest.firstFrameGraceSeconds", ext.firstFrameGraceSeconds.get().toString())
             test.systemProperty("hytest.showServerLogs", ext.showServerLogs.get().toString())
+            test.systemProperty("hytest.extraMods",
+                ext.extraMods.get().joinToString(java.io.File.pathSeparator) { it.toString() })
             if (ext.javaExecutable.isPresent) {
                 test.systemProperty("hytest.java", ext.javaExecutable.get())
             }

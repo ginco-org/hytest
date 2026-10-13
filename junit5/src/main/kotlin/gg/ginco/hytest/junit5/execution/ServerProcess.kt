@@ -5,6 +5,7 @@ import gg.ginco.hytest.junit5.descriptor.MethodDescriptor
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.file.Files
+import java.io.File
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.LinkedBlockingQueue
@@ -269,6 +270,13 @@ object ServerProcess {
         val modsDir = workDir.resolve("mods")
         Files.createDirectories(modsDir)
         Files.copy(config.pluginJar, modsDir.resolve("Hytest.jar"), StandardCopyOption.REPLACE_EXISTING)
+        // Dependency plugins that must live next to the test plugin (the test
+        // jar alone is the world the tested plugin expects) — deploy before
+        // boot exactly like the plugin itself is.
+        for (extra in config.extraMods) {
+            val name = extra.fileName.toString()
+            Files.copy(extra, modsDir.resolve(name), StandardCopyOption.REPLACE_EXISTING)
+        }
 
         val command = buildList {
             add(config.java)
@@ -344,6 +352,7 @@ object ServerProcess {
         val serverJar: Path,
         val assets: Path?,
         val pluginJar: Path,
+        val extraMods: List<Path>,
         val workDir: Path,
         val java: String,
         val jvmArgs: List<String>,
@@ -374,7 +383,14 @@ object ServerProcess {
                 val firstFrameGraceSeconds =
                     System.getProperty("hytest.firstFrameGraceSeconds", "90").toLong()
                 val showServerLogs = System.getProperty("hytest.showServerLogs", "false").toBoolean()
-                return Config(serverJar, assets, pluginJar, workDir, java, jvmArgs,
+                // Path-separator-separated extra plugin jars deployed into the
+                // test server's mods/ next to the test plugin itself — e.g.
+                // shared-runtime carrier plugins a test plugin depends on.
+                val extraMods = System.getProperty("hytest.extraMods", "")
+                    .split(File.pathSeparator)
+                    .filter { it.isNotBlank() }
+                    .map { Path.of(it) }
+                return Config(serverJar, assets, pluginJar, extraMods, workDir, java, jvmArgs,
                     timeoutSeconds * 1000L, firstFrameGraceSeconds * 1000L, showServerLogs)
             }
 
