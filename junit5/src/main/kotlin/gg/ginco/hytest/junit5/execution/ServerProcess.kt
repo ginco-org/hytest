@@ -2,6 +2,7 @@ package gg.ginco.hytest.junit5.execution
 
 import gg.ginco.hytest.junit5.descriptor.ClassDescriptor
 import gg.ginco.hytest.junit5.descriptor.MethodDescriptor
+import gg.ginco.hytest.junit5.json.parseJson
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.file.Files
@@ -37,10 +38,14 @@ object ServerProcess {
     fun run(
         methods: Map<String, MethodDescriptorRef>,
         listener: EngineExecutionListener,
-        showServerLogs: Boolean
+        showServerLogs: Boolean,
+        /** comma-joined "className#methodName" keys = the pruned set the engine is
+         *  executing (Gradle `--tests` filters, IDE single-test runs); the runtime
+         *  runs only these instead of its full discovery. */
+        selected: String
     ): RunOutcome {
         val config = Config.fromSystemProperties()
-        val process = startServer(config)
+        val process = startServer(config, selected)
         val queue = LinkedBlockingQueue<Frame>()
         val serverOutput = ArrayDeque<String>(OUTPUT_RING_LINES + 32)
 
@@ -61,6 +66,10 @@ object ServerProcess {
             // of the 300s budget.
             ensureTerminated(process,
                 minOf(deadline, System.currentTimeMillis() + SHUTDOWN_GRACE_MILLIS))
+            // The run dir is per-run staging (mods copies + server runtime
+            // junk); the process is gone by now. Best-effort — output needed
+            // for forensics already went to stdout via showServerLogs/tail.
+            deleteRecursively(config.workDir)
         }
     }
 
@@ -264,7 +273,7 @@ object ServerProcess {
         return frame.status != "passed"
     }
 
-    private fun startServer(config: Config): Process {
+    private fun startServer(config: Config, selected: String): Process {
         val workDir = config.workDir
         Files.createDirectories(workDir)
         val modsDir = workDir.resolve("mods")
@@ -282,6 +291,7 @@ object ServerProcess {
             add(config.java)
             addAll(config.jvmArgs)
             add("-Dhytest.run=true")
+            add("-Dhytest.selected=$selected")
             add("-jar"); add(config.serverJar.toString())
             if (config.assets != null) { add("--assets"); add(config.assets.toString()) }
             // No session tokens: every supported flow runs the server
@@ -307,6 +317,12 @@ object ServerProcess {
                 if (Frame.isFrame(line)) {
                     try { queue.put(Frame.parse(line)) } catch (e: InterruptedException) {
                         Thread.currentThread().interrupt(); return
+                    } catch (e: RuntimeException) {
+                        // A malformed "HYTEST …" line (e.g. user code printing the
+                        // prefix) must not kill the reader thread — that would EOF
+                        // the queue and report a bogus "server exited" verdict.
+                        appendLine(serverOutput, line)
+                        System.err.println("[hytest] unparseable frame, treating as server output: $e")
                     }
                 } else {
                     appendLine(serverOutput, line)
@@ -336,6 +352,15 @@ object ServerProcess {
             output.addLast(line)
             while (output.size > OUTPUT_RING_LINES) output.removeFirst()
         }
+    }
+
+    /** Best-effort removal of [dir] and everything under it. */
+    private fun deleteRecursively(dir: Path) {
+        try {
+            Files.walk(dir).use { walk ->
+                walk.sorted(Comparator.reverseOrder<Path>()).forEach { Files.deleteIfExists(it) }
+            }
+        } catch (_: Exception) { /* terminated with open handles, partial removal ok */ }
     }
 
     private fun ensureTerminated(process: Process, deadline: Long) {
@@ -402,8 +427,20 @@ object ServerProcess {
                 return Path.of(value)
             }
 
-            private fun splitArgs(args: String): List<String> =
-                args.split("\\s+".toRegex()).filter { it.isNotBlank() }
+            /** JSON array (the gradle plugin's shape since 0.3.0) — keeps args
+             *  containing spaces intact; a bare string is the legacy
+             *  hand-set `-Dhytest.jvmArgs"-Xmx4G -Xms1G"` form. */
+            private fun splitArgs(raw: String): List<String> {
+                val trimmed = raw.trim()
+                if (trimmed.isEmpty()) return emptyList()
+                if (trimmed.startsWith("[")) {
+                    val values = parseJson(trimmed) as? List<*>
+                        ?: throw IllegalStateException("hytest.jvmArgs: expected JSON array, got '$raw'")
+                    return values.map { (it as? String)
+                        ?: throw IllegalStateException("hytest.jvmArgs: expected string elements, got '$it'") }
+                }
+                return trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
+            }
         }
     }
 }

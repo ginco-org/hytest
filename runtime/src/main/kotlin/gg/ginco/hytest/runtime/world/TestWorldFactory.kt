@@ -21,7 +21,12 @@ object TestWorldFactory {
                 chunkStorageProvider = EmptyChunkStorageProvider.INSTANCE
                 resourceStorageProvider = EmptyResourceStorageProvider.INSTANCE
                 isSavingConfig = false
-                isDeleteOnRemove = false
+                // Nothing is persisted for these worlds: chunks stay in memory
+                // (canSaveChunks=false below) and there is no pregenerate or
+                // world map. The per-test dir under /tmp is an empty shell, so
+                // the server can delete it at removal — no hytest-world-*
+                // litter left behind by the suite.
+                isDeleteOnRemove = true
                 // Throwaway worlds: everything a test needs lives in memory
                 // (EmptyChunkStorage + chunk-store resources). With saving on,
                 // world removal runs ChunkSavingSystems.saveChunksInWorld and

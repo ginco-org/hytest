@@ -35,12 +35,11 @@ class SimulatedPlayer private constructor(
     val uuid: UUID,
     val name: String,
     private val channel: FakeChannelConnection,
+    /** clientViewRadiusChunks this identity was joined with ([reconnect] must rejoin the same way). */
+    private val viewRadius: Int,
 ) {
     /** Set by [disconnect] so [reconnect] can tell "disconnected, cleanup pending" from "never disconnected". */
     @Volatile private var disconnectRequested = false
-
-    /** clientViewRadiusChunks this identity was joined with ([reconnect] must rejoin the same way). */
-    private val viewRadius: Int get() = DEFAULT_VIEW_RADIUS_CHUNKS
 
     fun ref(): PlayerRef = playerRef
 
@@ -281,7 +280,7 @@ class SimulatedPlayer private constructor(
                         IllegalStateException("simulated player rejected by Universe.addPlayer (uuid=$uuid, name=$name)" +
                             " — the uuid is still registered; still connected, or removal not settled yet?"))
                 else
-                    CompletableFuture.completedFuture(SimulatedPlayer(world, playerRef, uuid, name, channel))
+                    CompletableFuture.completedFuture(SimulatedPlayer(world, playerRef, uuid, name, channel, viewRadius))
             }.whenComplete { _, _ ->
                 readyCompleter.cancel(false)
                 routing?.unregister()

@@ -9,7 +9,7 @@ like ordinary tests.
 public class MyFeatureTest {
     @HytaleTest
     void worldIsAlive(HytaleTestHelper t) {
-        t.assertTrue(t.world().isAlive(), "world should be alive");
+        t.assertTrue(t.getWorld().isAlive(), "world should be alive");
         t.succeed();
     }
 
@@ -90,7 +90,7 @@ pluginManagement {
 ```kotlin
 plugins {
     id("gg.ginco.hygradle") version "0.5.0"   // plugin build setup + server provisioning
-    id("gg.ginco.hytest")   version "0.1.2"   // this framework
+    id("gg.ginco.hytest")   version "0.2.0"   // this framework
 }
 
 hytale {
@@ -119,7 +119,7 @@ import gg.ginco.hytest.runtime.api.HytaleTestHelper;
 public class WorldTest {
     @HytaleTest
     void worldIsAlive(HytaleTestHelper t) {
-        t.assertTrue(t.world().isAlive(), "world should be alive");
+        t.assertTrue(t.getWorld().isAlive(), "world should be alive");
         t.succeed();
     }
 
@@ -150,7 +150,7 @@ t.runAfterDelay(20, () -> { ... });       // ~1 second later (1 tick ≈ 50ms)
 > **Note on threading:** the test body runs **off** the world thread so it can
 > block (e.g. wait for a join) without deadlocking the world. Use
 > `t.runOnWorld(...)` for anything that must run on the world thread. Reads like
-> `world()`, `tick()`, and `transform()` are safe from the test thread.
+> `getWorld()`, `tick()`, and `transform()` are safe from the test thread.
 
 ### `succeedWhen` vs `assertEventually`
 
@@ -195,7 +195,7 @@ void simulatedPlayerJoins(HytaleTestHelper t) {
 | Method | Description |
 |--------|-------------|
 | `ref()` | The underlying `PlayerRef` (a `CommandSender`) |
-| `uuid()` / `name()` | Identity |
+| `getUuid()` / `getName()` | Identity |
 | `transform()` | Current `Transform` (position/rotation) |
 | `runCommand(String)` | Execute a command as the player (leading `/` optional; root lookup is case-insensitive) |
 | `disconnect()` | Remove the player from the universe; the handle becomes **stale** (removal settles asynchronously, bounded ~5s server-side) |
@@ -275,7 +275,7 @@ hytest { showServerLogs = true }
 
 | Method | Description |
 |--------|-------------|
-| `world()` | The ephemeral test `World` |
+| `getWorld()` | The ephemeral test `World` |
 | `tick()` | Current world tick counter |
 | `succeed()` / `fail(msg)` / `fail(throwable)` | Complete the test |
 | `succeedWhen(Runnable)` | Poll until `condition` stops throwing, then succeed |
@@ -302,7 +302,7 @@ are only for pointing hytest at a server outside that directory.
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `version` | `String` | `0.1.2` | Hytest artifact version to depend on (`runtime` + `junit5`); set it to pin a different release than the plugin's default |
+| `version` | `String` | `0.2.0` | Hytest artifact version to depend on (`runtime` + `junit5`); set it to pin a different release than the plugin's default |
 | `serverDir` | `Directory` | hygradle's `run/` | Where to find `HytaleServer.jar` + `Assets.zip` |
 | `serverJar` | `String` | `<serverDir>/HytaleServer.jar` | Explicit server jar (overrides `serverDir`; bypasses provisioning) |
 | `assets` | `String` | `<serverDir>/Assets.zip` | Explicit assets dir or zip (overrides `serverDir`; bypasses provisioning) |
@@ -327,7 +327,9 @@ hytest {
 
 - **Discovery** scans the `hytaleTest` classpath for `@HytaleTest` using ASM,
   reading bytecode without loading classes — so the server's classes are never
-  needed in the test JVM. JUnit's standard class/method filters work as usual.
+  needed in the test JVM. Class/method filters (`--tests`, IDE single-test
+  runs) propagate to the server: the engine hands the runtime its pruned
+  selection, so only those tests actually execute.
 - **Execution** merges `hytest-runtime` with your compiled tests into a single
   plugin jar, drops it into a fresh server's `mods/`, and launches the server
   with `hytest.run=true`. The jar's manifest is **your plugin's manifest** (from

@@ -56,8 +56,12 @@ class HytestEngine : TestEngine {
 
         listener.executionStarted(root)
         val showServerLogs = System.getProperty("hytest.showServerLogs", "false").toBoolean()
+        // comma-joined "class#method" keys the (filter-pruned) root carries —
+        // the runtime runs ONLY this set, so Gradle `--tests` filters and IDE
+        // single-test runs propagate instead of the server running the full suite.
+        val selected = methods.keys.joinToString(",")
         try {
-            val outcome = ServerProcess.run(methodRefs, listener, showServerLogs)
+            val outcome = ServerProcess.run(methodRefs, listener, showServerLogs, selected)
             // The root mirrors the run: a suite whose tests died with the
             // server must fail the build, not dissolve into green skips.
             listener.executionFinished(root, outcome.rootResult())

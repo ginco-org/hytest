@@ -23,9 +23,22 @@ object TestRunner {
 
     fun runAsync() {
         val loader = TestRunner::class.java.classLoader
-        val tests = ClasspathTestScanner.discover(loader)
+        // Engine-driven runs pass the pruned selection (Gradle `--tests`
+        // filters, IDE single-test runs); null means a hand-started server with
+        // the mod → run everything discovered. Key format matches the result
+        // frames: "binary.className#methodName".
+        val selected = System.getProperty("hytest.selected")
+            ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+        val all = ClasspathTestScanner.discover(loader)
+        val tests = if (selected == null) all
+            else all.filter { "${it.testClass.name}#${it.method.name}" in selected }
         if (tests.isEmpty()) {
-            ResultReporter.warning("no @HytaleTest methods found — ensure tests are in src/hytaleTest/java/")
+            if (selected == null)
+                ResultReporter.warning("no @HytaleTest methods found — ensure tests are in src/hytaleTest/java/")
+            else
+                ResultReporter.warning(
+                    "no discovered @HytaleTest matched the engine's selection — " +
+                        "runtime and Gradle-side discovery disagree")
         }
         ResultReporter.runStarted(tests.size)
 

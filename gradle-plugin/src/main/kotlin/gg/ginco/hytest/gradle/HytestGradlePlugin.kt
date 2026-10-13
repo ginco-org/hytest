@@ -214,7 +214,9 @@ class HytestGradlePlugin : Plugin<Project> {
             val gradleUserHome = project.gradle.gradleUserHomeDir
 
             test.systemProperty("hytest.serverDir", serverDir.absolutePath)
-            test.systemProperty("hytest.jvmArgs", ext.jvmArgs.get().joinToString(" "))
+            // JSON list so an arg containing spaces survives the engine-side
+            // parse; ServerProcess.splitArgs still accepts the legacy bare form.
+            test.systemProperty("hytest.jvmArgs", jvmArgsToJson(ext.jvmArgs.get()))
             test.systemProperty("hytest.timeoutSeconds", ext.timeoutSeconds.get().toString())
             test.systemProperty("hytest.firstFrameGraceSeconds", ext.firstFrameGraceSeconds.get().toString())
             test.systemProperty("hytest.showServerLogs", ext.showServerLogs.get().toString())
@@ -274,6 +276,12 @@ class HytestGradlePlugin : Plugin<Project> {
         return File(gradleUserHome, "caches/hygradle/server/$version/$name").takeIf { it.isFile }
     }
 
+    /** Minimal JSON array writer — the build script shares no util with the junit5 artifact. */
+    private fun jvmArgsToJson(args: List<String>): String =
+        args.joinToString(",", prefix = "[", postfix = "]") { arg ->
+            "\"" + arg.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        }
+
     private fun applyHygradleDefaults(project: Project, ext: HytestExtension) {
         val hytale = project.extensions.findByName("hytale") ?: return
         try {
@@ -287,6 +295,13 @@ class HytestGradlePlugin : Plugin<Project> {
         }
     }
 
+    /**
+     * Fallback pin for junit5 artifacts that predate shipping a matched
+     * junit-platform-launcher as an api dependency. Newer artifacts resolve
+     * their own launcher transitively (Gradle picks the higher version), so
+     * this stops being load-bearing once those are published. Explicit
+     * override: `junitPlatformVersion` gradle property.
+     */
     private fun resolveJunitPlatformVersion(project: Project): String =
         project.findProperty("junitPlatformVersion")?.toString() ?: "6.1.1"
 

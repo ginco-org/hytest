@@ -41,15 +41,11 @@ public class ExamplePlayerTest {
 
         alice.disconnect();
 
-        // Player removal is processed asynchronously by the server (0.6.x) —
-        // poll instead of assuming it completes within a fixed number of ticks.
-        // The server bounds the removal at 5 seconds, so poll at most that long.
-        boolean removed = false;
-        for (int i = 0; i < 100 && !removed; i++) {
-            t.waitForTicks(1);
-            removed = !alice.isValid();
-        }
-        t.assertFalse(alice.isValid(), "player should be invalid after disconnect");
+        // Player removal is processed asynchronously by the server (0.6.x),
+        // bounded ~5s server-side — assertEventually blocks until isValid()
+        // flips false, with budget to spare on slow 2-core runners.
+        t.assertEventually(10, () ->
+            t.assertFalse(alice.isValid(), "player should be invalid after disconnect"));
         t.succeed();
     }
 
