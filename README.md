@@ -96,7 +96,7 @@ plugins {
 hytale {
     group = "MyGroup"
     mainClass = "com.example.myplugin.MyPlugin"
-    serverVersion = "0.6.8"
+    serverVersion = "0.7.2"
 }
 ```
 
@@ -221,7 +221,7 @@ void rejoinsWithSameIdentity(HytaleTestHelper t) {
 }
 ```
 
-Behavior, pinned against server 0.6.8:
+Behavior, pinned against server 0.7.2:
 
 - **Reconnect while still connected fails fast** with `IllegalStateException`
   ("player is still connected — call disconnect() first"). There is no implicit

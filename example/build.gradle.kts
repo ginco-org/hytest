@@ -9,7 +9,7 @@ hytale {
     group = "Example"
     name = "HytestExample"
     mainClass = "com.example.ExamplePlugin"
-    serverVersion = "0.6.8"
+    serverVersion = "0.7.2"
     server {
         serverDir = file("../run")
     }

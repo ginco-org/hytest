@@ -86,8 +86,8 @@ abstract class HytestManifestTask : DefaultTask() {
      * hygradle normalizes the same input before writing its own manifests
      * (`ManifestJsonKt.toSemverRange`); the merged manifest must match or the
      * server rejects it — 0.6.x `SemverRange` refuses bare versions whose
-     * patch is non-zero ("0.6.8") while accepting exact ("=0.6.8") and range
-     * ("^0.6.8", "0.6.x", …) forms.
+     * patch is non-zero ("0.7.2") while accepting exact ("=0.7.2") and range
+     * ("^0.7.2", "0.7.x", …) forms.
      */
     private fun toSemverRange(version: String): String {
         val trimmed = version.trim()

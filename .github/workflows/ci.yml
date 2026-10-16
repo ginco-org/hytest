@@ -79,16 +79,16 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.gradle/caches/hygradle/server
-          key: hytale-server-0.6.8-${{ github.run_id }}
+          key: hytale-server-0.7.2-${{ github.run_id }}
           restore-keys: |
-            hytale-server-0.6.8-
+            hytale-server-0.7.2-
             hytale-server-
       - name: Save Hytale server files
         if: always()
         uses: actions/cache/save@v4
         with:
           path: ~/.gradle/caches/hygradle/server
-          key: hytale-server-0.6.8-${{ github.run_id }}
+          key: hytale-server-0.7.2-${{ github.run_id }}
 
       # The `secrets` context is not available in step/job `if:` conditions,
       # so the standard workaround is to mirror the secret into an env var of
