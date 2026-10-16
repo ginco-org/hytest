@@ -1,5 +1,5 @@
 plugins {
-    id("gg.ginco.hygradle") version "0.7.0"
+    id("gg.ginco.hygradle") version "0.7.1"
     id("gg.ginco.hytest")
 }
 

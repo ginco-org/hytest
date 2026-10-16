@@ -89,7 +89,7 @@ pluginManagement {
 **`build.gradle.kts`**
 ```kotlin
 plugins {
-    id("gg.ginco.hygradle") version "0.7.0"   // plugin build setup + server provisioning
+    id("gg.ginco.hygradle") version "0.7.1"   // plugin build setup + server provisioning
     id("gg.ginco.hytest")   version "0.3.0"   // this framework
 }
 
